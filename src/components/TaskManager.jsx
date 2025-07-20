@@ -301,6 +301,19 @@ const TaskManager = () => {
 
   const deleteTask = async (id) => {
     try {
+      // Fetch the task document before deleting
+      const taskDoc = await getDoc(doc(db, 'tasks', id));
+      if (!taskDoc.exists()) {
+        alert('Task not found in Firestore.');
+        return;
+      }
+      const taskData = taskDoc.data();
+      console.log('Attempting to delete task:', { id, ...taskData });
+      if (taskData.userId !== currentUser.uid) {
+        alert('You do not have permission to delete this task.');
+        console.warn('Delete blocked: userId mismatch', { taskUserId: taskData.userId, currentUser: currentUser.uid });
+        return;
+      }
       await deleteDoc(doc(db, 'tasks', id));
       setTasks(tasks.filter(task => task.id !== id));
       // Update user's totalTasks count
@@ -318,6 +331,7 @@ const TaskManager = () => {
       }
     } catch (error) {
       console.error('Error deleting task:', error);
+      alert('Failed to delete task: ' + (error.message || error.code || error));
     }
   };
 
@@ -606,7 +620,7 @@ const TaskManager = () => {
                   <p className="text-gray-700 mb-3">{task.description}</p>
                 )}
                 <div className="flex items-center space-x-4 text-sm text-gray-500">
-                  <span>📅 Due: {task.dueDate instanceof Date ? task.dueDate.toLocaleDateString() : new Date(task.dueDate).toLocaleDateString()}</span>
+                  <span>📅 Due: {(() => { try { return (task.dueDate && (task.dueDate.toDate ? task.dueDate.toDate() : new Date(task.dueDate))).toLocaleDateString(); } catch { return 'Invalid date'; } })()}</span>
                   <span>📚 {task.subject}</span>
                 </div>
               </div>

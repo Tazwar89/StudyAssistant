@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuth.js';
 import { updateProfile, updatePassword, reauthenticateWithCredential, EmailAuthProvider } from 'firebase/auth';
-import { doc, updateDoc, getDoc, onSnapshot } from 'firebase/firestore';
+import { doc, updateDoc, getDoc, onSnapshot, collection, query, where, getDocs, deleteDoc } from 'firebase/firestore';
 import { db } from '../config/firebase.js';
 import { 
   UserIcon, 
@@ -769,6 +769,8 @@ const Profile = () => {
                         setResetError('');
                         setResetSuccess('');
                         try {
+                          console.log('Resetting user stats for', currentUser.uid);
+                          // 1. Reset user stats
                           await updateDoc(doc(db, 'users', currentUser.uid), {
                             points: 0,
                             streak: 0,
@@ -788,9 +790,26 @@ const Profile = () => {
                               longestStreak: 0
                             }
                           });
-                          setResetSuccess('Progress has been reset.');
+                          console.log('User stats reset. Now querying tasks...');
+                          // 2. Delete all tasks for this user
+                          const tasksQuery = query(collection(db, 'tasks'), where('userId', '==', currentUser.uid));
+                          const tasksSnapshot = await getDocs(tasksQuery);
+                          console.log('Tasks found for deletion:', tasksSnapshot.docs.length);
+                          if (tasksSnapshot.docs.length === 0) {
+                            alert('No tasks found to delete. User stats have been reset.');
+                          } else {
+                            const deletePromises = tasksSnapshot.docs.map(docSnap => {
+                              console.log('Deleting task:', docSnap.id, docSnap.data());
+                              return deleteDoc(doc(db, 'tasks', docSnap.id));
+                            });
+                            await Promise.all(deletePromises);
+                            alert('Progress and all tasks have been reset.');
+                          }
+                          setResetSuccess('Progress and all tasks have been reset.');
                         } catch (err) {
+                          console.error('Reset progress error:', err);
                           setResetError('Failed to reset progress.');
+                          alert('Failed to reset progress: ' + (err.message || err.code || err));
                         } finally {
                           setResetLoading(false);
                         }
