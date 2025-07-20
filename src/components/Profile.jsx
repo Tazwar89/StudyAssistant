@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuth.js';
 import { updateProfile } from 'firebase/auth';
-import { doc, updateDoc, getDoc } from 'firebase/firestore';
+import { doc, updateDoc, getDoc, onSnapshot } from 'firebase/firestore';
 import { db } from '../config/firebase.js';
 import { 
   UserIcon, 
@@ -68,53 +68,22 @@ const Profile = () => {
     fetchUserStats();
   }, [currentUser]);
 
-  const [achievements] = useState([
-    {
-      id: 1,
-      name: 'First Steps',
-      description: 'Complete your first study session',
-      icon: '🎯',
-      earned: true,
-      date: '2024-01-15'
-    },
-    {
-      id: 2,
-      name: 'Week Warrior',
-      description: 'Study for 7 consecutive days',
-      icon: '🔥',
-      earned: true,
-      date: '2024-01-20'
-    },
-    {
-      id: 3,
-      name: 'Task Master',
-      description: 'Complete 50 tasks',
-      icon: '✅',
-      earned: true,
-      date: '2024-01-18'
-    },
-    {
-      id: 4,
-      name: 'Math Whiz',
-      description: 'Complete 20 math-related tasks',
-      icon: '🧮',
-      earned: false
-    },
-    {
-      id: 5,
-      name: 'Early Bird',
-      description: 'Study before 8 AM for 5 days',
-      icon: '🌅',
-      earned: false
-    },
-    {
-      id: 6,
-      name: 'Century Club',
-      description: 'Study for 100 total hours',
-      icon: '💯',
-      earned: false
-    }
-  ]);
+  const [achievements, setAchievements] = useState([]);
+
+  // Real-time achievements listener
+  useEffect(() => {
+    if (!currentUser || !currentUser.uid) return;
+    const userDocRef = doc(db, 'users', currentUser.uid);
+    const unsubscribe = onSnapshot(userDocRef, (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        setAchievements(data.achievementsList || []);
+      } else {
+        setAchievements([]);
+      }
+    });
+    return () => unsubscribe();
+  }, [currentUser]);
 
   const [studyHistory] = useState([
     { date: '2024-01-24', hours: 4.5, subjects: ['Mathematics', 'Physics'] },
@@ -146,6 +115,125 @@ const Profile = () => {
     if (!userStats) return 0;
     return (userStats.weeklyProgress / userStats.weeklyGoal) * 100;
   };
+
+  // List of all possible achievements
+  const ALL_ACHIEVEMENTS = [
+    {
+      id: 1,
+      name: 'First Steps',
+      description: 'Complete your first study session',
+      icon: '🎯',
+    },
+    {
+      id: 2,
+      name: 'Week Warrior',
+      description: 'Study for 7 consecutive days',
+      icon: '🔥',
+    },
+    {
+      id: 3,
+      name: 'Task Master',
+      description: 'Complete 50 tasks',
+      icon: '✅',
+    },
+    {
+      id: 4,
+      name: 'Math Whiz',
+      description: 'Complete 20 math-related tasks',
+      icon: '🧮',
+    },
+    {
+      id: 5,
+      name: 'Early Bird',
+      description: 'Study before 8 AM for 5 days',
+      icon: '🌅',
+    },
+    {
+      id: 6,
+      name: 'Century Club',
+      description: 'Study for 100 total hours',
+      icon: '💯',
+    },
+    // New Achievements
+    {
+      id: 8,
+      name: 'Streak Master',
+      description: 'Maintain a 30-day study streak',
+      icon: '🏆',
+    },
+    {
+      id: 9,
+      name: 'Subject Explorer',
+      description: 'Study 5 different subjects',
+      icon: '📚',
+    },
+    {
+      id: 10,
+      name: 'Focus Pro',
+      description: 'Complete 10 Pomodoro sessions in one week',
+      icon: '⏳',
+    },
+    {
+      id: 11,
+      name: 'Task Streak',
+      description: 'Complete at least one task every day for 14 days',
+      icon: '📅',
+    },
+    {
+      id: 12,
+      name: 'Science Star',
+      description: 'Complete 10 science-related tasks',
+      icon: '🔬',
+    },
+    {
+      id: 13,
+      name: 'Literature Lover',
+      description: 'Complete 10 literature-related tasks',
+      icon: '📖',
+    },
+    {
+      id: 14,
+      name: 'History Buff',
+      description: 'Complete 10 history-related tasks',
+      icon: '🏺',
+    },
+    {
+      id: 15,
+      name: 'Comeback Kid',
+      description: 'Resume a streak after breaking it for at least 3 days',
+      icon: '🔄',
+    },
+    {
+      id: 16,
+      name: 'Goal Crusher',
+      description: 'Achieve your weekly study goal 4 weeks in a row',
+      icon: '🥇',
+    },
+    {
+      id: 17,
+      name: 'Marathoner',
+      description: 'Study for 4 hours in a single day',
+      icon: '🏃‍♂️',
+    },
+    {
+      id: 18,
+      name: 'Helper',
+      description: 'Help a friend with their studies',
+      icon: '🤝',
+    },
+    {
+      id: 19,
+      name: 'AI Enthusiast',
+      description: 'Use the AI Chatbot 10 times',
+      icon: '🤖',
+    },
+    {
+      id: 20,
+      name: 'Consistency Champ',
+      description: 'Log in and study every day for a month',
+      icon: '📆',
+    },
+  ];
 
   if (loading) {
     return (
@@ -335,40 +423,43 @@ const Profile = () => {
             <div className="card">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Achievements</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {achievements.map((achievement) => (
-                  <div
-                    key={achievement.id}
-                    className={`p-4 rounded-lg border-2 transition-all duration-200 ${
-                      achievement.earned
-                        ? 'border-success-200 bg-success-50'
-                        : 'border-gray-200 bg-gray-50'
-                    }`}
-                  >
-                    <div className="flex items-start space-x-3">
-                      <div className="text-2xl">{achievement.icon}</div>
-                      <div className="flex-1">
-                        <h4 className={`font-semibold ${
-                          achievement.earned ? 'text-success-800' : 'text-gray-600'
-                        }`}>
-                          {achievement.name}
-                        </h4>
-                        <p className={`text-sm ${
-                          achievement.earned ? 'text-success-700' : 'text-gray-500'
-                        }`}>
-                          {achievement.description}
-                        </p>
-                        {achievement.earned && (
-                          <p className="text-xs text-success-600 mt-1">
-                            Earned on {achievement.date}
+                {ALL_ACHIEVEMENTS.map((ach) => {
+                  const earned = achievements.find(a => a.id === ach.id || a.name === ach.name);
+                  return (
+                    <div
+                      key={ach.id || ach.name}
+                      className={`p-4 rounded-lg border-2 transition-all duration-200 ${
+                        earned
+                          ? 'border-success-200 bg-success-50'
+                          : 'border-gray-200 bg-gray-50'
+                      }`}
+                    >
+                      <div className="flex items-start space-x-3">
+                        <div className="text-2xl">{ach.icon}</div>
+                        <div className="flex-1">
+                          <h4 className={`font-semibold ${
+                            earned ? 'text-success-800' : 'text-gray-600'
+                          }`}>
+                            {ach.name}
+                          </h4>
+                          <p className={`text-sm ${
+                            earned ? 'text-success-700' : 'text-gray-500'
+                          }`}>
+                            {ach.description}
                           </p>
+                          {earned && earned.date && (
+                            <p className="text-xs text-success-600 mt-1">
+                              Earned on {earned.date}
+                            </p>
+                          )}
+                        </div>
+                        {earned && (
+                          <CheckCircleIcon className="h-5 w-5 text-success-600" />
                         )}
                       </div>
-                      {achievement.earned && (
-                        <CheckCircleIcon className="h-5 w-5 text-success-600" />
-                      )}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
