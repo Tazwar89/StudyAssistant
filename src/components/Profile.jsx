@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuth.js';
 import { updateProfile } from 'firebase/auth';
-import { doc, updateDoc } from 'firebase/firestore';
+import { doc, updateDoc, getDoc } from 'firebase/firestore';
 import { db } from '../config/firebase.js';
 import { 
   UserIcon, 
@@ -33,17 +33,40 @@ const Profile = () => {
   const [nameError, setNameError] = useState('');
   const [nameSuccess, setNameSuccess] = useState('');
 
-  const [userStats] = useState({
-    totalStudyTime: 156.5,
-    completedTasks: 89,
-    currentStreak: 12,
-    totalPoints: 2840,
-    level: 8,
-    achievements: 15,
-    subjects: ['Mathematics', 'Physics', 'English', 'Programming'],
-    weeklyGoal: 20,
-    weeklyProgress: 16.5
-  });
+  // New: State for loading and user stats from Firestore
+  const [userStats, setUserStats] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!currentUser || !currentUser.uid) return;
+    setLoading(true);
+    const fetchUserStats = async () => {
+      try {
+        const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
+        if (userDoc.exists()) {
+          const data = userDoc.data();
+          setUserStats({
+            totalStudyTime: data.studyTime ? (data.studyTime / 3600).toFixed(1) : 0,
+            completedTasks: data.completedTasks || 0,
+            currentStreak: data.streak || 0,
+            totalPoints: data.points || 0,
+            level: data.level || 1,
+            achievements: data.achievements || 0,
+            subjects: data.customSubjects || ['Mathematics', 'Physics', 'English', 'Programming'],
+            weeklyGoal: data.weeklyGoal || 20,
+            weeklyProgress: data.weeklyProgress || 0
+          });
+        } else {
+          setUserStats(null);
+        }
+      } catch (err) {
+        setUserStats(null);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchUserStats();
+  }, [currentUser]);
 
   const [achievements] = useState([
     {
@@ -111,15 +134,28 @@ const Profile = () => {
   };
 
   const getLevelProgress = () => {
-    const pointsForNextLevel = 3000;
-    const currentLevelPoints = 2800;
+    if (!userStats) return 0;
+    // Example: Level 8 = 2800, Level 9 = 3000
+    const currentLevelPoints = (userStats.level - 1) * 400 + 100; // Simplified
+    const pointsForNextLevel = userStats.level * 400 + 100;
     const progress = ((userStats.totalPoints - currentLevelPoints) / (pointsForNextLevel - currentLevelPoints)) * 100;
-    return Math.min(progress, 100);
+    return Math.min(Math.max(progress, 0), 100);
   };
 
   const getWeeklyProgress = () => {
+    if (!userStats) return 0;
     return (userStats.weeklyProgress / userStats.weeklyGoal) * 100;
   };
+
+  if (loading) {
+    return (
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="flex items-center justify-center h-64">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -194,7 +230,7 @@ const Profile = () => {
             <div className="mb-6">
               <div className="flex items-center justify-center space-x-2 mb-2">
                 <StarIcon className="h-5 w-5 text-yellow-500" />
-                <span className="text-lg font-semibold text-gray-900">Level {userStats.level}</span>
+                <span className="text-lg font-semibold text-gray-900">Level {userStats?.level || 1}</span>
               </div>
               <div className="w-full bg-gray-200 rounded-full h-2 mb-2">
                 <div 
@@ -202,17 +238,17 @@ const Profile = () => {
                   style={{ width: `${getLevelProgress()}%` }}
                 ></div>
               </div>
-              <p className="text-sm text-gray-600">{userStats.totalPoints} / 3000 points</p>
+              <p className="text-sm text-gray-600">{userStats?.totalPoints || 0} points</p>
             </div>
 
             {/* Quick Stats */}
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div className="p-3 bg-gray-50 rounded-lg">
-                <div className="font-medium text-gray-900">{userStats.totalStudyTime}h</div>
+                <div className="font-medium text-gray-900">{userStats?.totalStudyTime || 0}h</div>
                 <div className="text-gray-600">Total Study Time</div>
               </div>
               <div className="p-3 bg-gray-50 rounded-lg">
-                <div className="font-medium text-gray-900">{userStats.currentStreak}</div>
+                <div className="font-medium text-gray-900">{userStats?.currentStreak || 0}</div>
                 <div className="text-gray-600">Day Streak</div>
               </div>
             </div>
@@ -254,8 +290,8 @@ const Profile = () => {
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">Weekly Progress</h3>
                 <div className="mb-4">
                   <div className="flex justify-between items-center mb-2">
-                    <span className="text-sm font-medium text-gray-700">Study Goal: {userStats.weeklyGoal}h</span>
-                    <span className="text-sm font-medium text-gray-700">{userStats.weeklyProgress}h / {userStats.weeklyGoal}h</span>
+                    <span className="text-sm font-medium text-gray-700">Study Goal: {userStats?.weeklyGoal || 0}h</span>
+                    <span className="text-sm font-medium text-gray-700">{userStats?.weeklyProgress || 0}h / {userStats?.weeklyGoal || 0}h</span>
                   </div>
                   <div className="w-full bg-gray-200 rounded-full h-3">
                     <div 
@@ -266,15 +302,15 @@ const Profile = () => {
                 </div>
                 <div className="grid grid-cols-3 gap-4 text-center">
                   <div>
-                    <div className="text-2xl font-bold text-primary-600">{userStats.completedTasks}</div>
+                    <div className="text-2xl font-bold text-primary-600">{userStats?.completedTasks || 0}</div>
                     <div className="text-sm text-gray-600">Tasks Completed</div>
                   </div>
                   <div>
-                    <div className="text-2xl font-bold text-success-600">{userStats.achievements}</div>
+                    <div className="text-2xl font-bold text-success-600">{userStats?.achievements || 0}</div>
                     <div className="text-sm text-gray-600">Achievements</div>
                   </div>
                   <div>
-                    <div className="text-2xl font-bold text-warning-600">{userStats.currentStreak}</div>
+                    <div className="text-2xl font-bold text-warning-600">{userStats?.currentStreak || 0}</div>
                     <div className="text-sm text-gray-600">Day Streak</div>
                   </div>
                 </div>
@@ -284,7 +320,7 @@ const Profile = () => {
               <div className="card">
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">Your Subjects</h3>
                 <div className="grid grid-cols-2 gap-3">
-                  {userStats.subjects.map((subject, index) => (
+                  {(userStats?.subjects || []).map((subject, index) => (
                     <div key={index} className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg">
                       <AcademicCapIcon className="h-5 w-5 text-primary-600" />
                       <span className="font-medium text-gray-900">{subject}</span>
