@@ -10,7 +10,10 @@ const Login = () => {
   });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const { signup, login } = useAuth();
+  const [showReset, setShowReset] = useState(false);
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetMessage, setResetMessage] = useState('');
+  const { signup, login, resetPassword } = useAuth();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -38,6 +41,18 @@ const Login = () => {
       ...formData,
       [e.target.name]: e.target.value
     });
+  };
+
+  const handleResetPassword = async (e) => {
+    e.preventDefault();
+    setResetMessage('');
+    setError('');
+    try {
+      await resetPassword(resetEmail);
+      setResetMessage('Password reset email sent! Check your inbox.');
+    } catch (err) {
+      setError(err.message);
+    }
   };
 
   return (
@@ -134,6 +149,59 @@ const Login = () => {
               )}
             </button>
           </form>
+
+          {isLogin && (
+            <div className="mt-2 text-right">
+              <button
+                type="button"
+                className="text-blue-600 hover:underline text-sm"
+                onClick={() => setShowReset(true)}
+              >
+                Forgot Password?
+              </button>
+            </div>
+          )}
+
+          {showReset && (
+            <div className="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+              <form onSubmit={handleResetPassword} className="space-y-2">
+                <label htmlFor="resetEmail" className="block text-sm font-medium text-gray-700 mb-1">
+                  Enter your email to reset password
+                </label>
+                <input
+                  id="resetEmail"
+                  name="resetEmail"
+                  type="email"
+                  required
+                  value={resetEmail}
+                  onChange={e => setResetEmail(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="Enter your email"
+                />
+                <div className="flex justify-between items-center">
+                  <button
+                    type="submit"
+                    className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-1 px-3 rounded-lg text-sm"
+                  >
+                    Send Reset Email
+                  </button>
+                  <button
+                    type="button"
+                    className="text-gray-500 hover:underline text-xs ml-2"
+                    onClick={() => {
+                      setShowReset(false);
+                      setResetEmail('');
+                      setResetMessage('');
+                      setError('');
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+                {resetMessage && <div className="text-green-600 text-xs mt-1">{resetMessage}</div>}
+              </form>
+            </div>
+          )}
 
           <div className="mt-6 text-center">
             <button

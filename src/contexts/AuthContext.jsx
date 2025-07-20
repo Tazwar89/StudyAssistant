@@ -4,7 +4,8 @@ import {
   signInWithEmailAndPassword, 
   signOut, 
   onAuthStateChanged,
-  updateProfile
+  updateProfile,
+  sendPasswordResetEmail
 } from 'firebase/auth';
 import { doc, setDoc, getDoc } from 'firebase/firestore';
 import { auth, db } from '../config/firebase.js';
@@ -52,6 +53,10 @@ export function AuthProvider({ children }) {
 
   async function logout() {
     await signOut(auth);
+  }
+
+  async function resetPassword(email) {
+    return sendPasswordResetEmail(auth, email);
   }
 
   // Listen for auth state changes
@@ -118,7 +123,8 @@ export function AuthProvider({ children }) {
     signup,
     login,
     logout,
-    loading
+    loading,
+    resetPassword
   };
 
   return (
