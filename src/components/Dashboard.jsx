@@ -36,7 +36,6 @@ const Dashboard = () => {
     // Calculate stats
     const totalTasks = tasks.length;
     const completedTasks = tasks.filter(task => task.status === 'completed').length;
-    const pendingTasks = tasks.filter(task => task.status === 'pending').length;
     const inProgressTasks = tasks.filter(task => task.status === 'in-progress').length;
 
     // Get upcoming deadlines (tasks due within 7 days)
@@ -460,7 +459,7 @@ const Dashboard = () => {
         <div className="bg-white rounded-lg shadow-md p-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Study Hours This Week</h3>
           <div className="h-64 flex items-end justify-between space-x-2">
-            {weeklyData.map((day, index) => (
+            {weeklyData.map((day) => (
               <div key={day.day} className="flex flex-col items-center flex-1">
                 <div className="w-full bg-gray-200 rounded-t-lg relative" style={{ height: '200px' }}>
                   <div 
@@ -490,7 +489,7 @@ const Dashboard = () => {
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Study Time by Subject</h3>
           <div className="h-64 space-y-3">
             {subjectData.length > 0 ? (
-              subjectData.map((subject, index) => (
+              subjectData.map((subject) => (
                 <div key={subject.subject} className="flex items-center space-x-3">
                   <div className="w-24 text-sm font-medium text-gray-900 truncate">
                     {subject.subject}

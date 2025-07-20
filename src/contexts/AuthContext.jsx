@@ -1,23 +1,17 @@
-import { createContext, useContext, useState } from 'react';
-
-const AuthContext = createContext();
-
-export function useAuth() {
-  return useContext(AuthContext);
-}
+import { useState } from 'react';
+import { AuthContext } from './AuthContext.js';
 
 export function AuthProvider({ children }) {
   const [currentUser, setCurrentUser] = useState({
     displayName: 'Student',
     email: 'student@example.com'
   });
-  const [loading, setLoading] = useState(false);
 
-  function signup(email, password, displayName) {
+  function signup(email, displayName) {
     return Promise.resolve({ user: { displayName, email } });
   }
 
-  function login(email, password) {
+  function login(email) {
     return Promise.resolve({ user: { displayName: 'Student', email } });
   }
 

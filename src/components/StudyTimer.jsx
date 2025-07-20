@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 
 const StudyTimer = () => {
   // Load timer data from localStorage on component mount
@@ -20,11 +20,11 @@ const StudyTimer = () => {
   });
   const [timerMode, setTimerMode] = useState('pomodoro'); // pomodoro, short-break, long-break
 
-  const timerSettings = {
+  const timerSettings = useMemo(() => ({
     pomodoro: 25 * 60,
     'short-break': 5 * 60,
     'long-break': 15 * 60
-  };
+  }), []);
 
   // Get available subjects from tasks
   const getAvailableSubjects = () => {
