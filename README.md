@@ -2,10 +2,6 @@
 
 A comprehensive web application designed to help students manage their study sessions, track progress, and get AI-powered assistance for effective learning.
 
-## 🚀 Live Demo
-
-[Add your live demo link here]
-
 ## ✨ Features
 
 ### 📊 **Dashboard & Analytics**
@@ -17,9 +13,7 @@ A comprehensive web application designed to help students manage their study ses
 
 ### ⏱️ **Study Timer**
 - **Pomodoro Technique**: 25-minute focused study sessions with 5-minute breaks
-- **Custom Timer**: Set custom study durations
 - **Subject Tracking**: Organize study time by different subjects
-- **Session Management**: Track individual study sessions and total time
 - **Real-time Updates**: Live timer with pause/resume functionality
 - **Study Time by Subject**: Visual breakdown of time spent on each subject
 
@@ -28,7 +22,6 @@ A comprehensive web application designed to help students manage their study ses
 - **Priority Levels**: Mark tasks as high, medium, or low priority
 - **Status Tracking**: Mark tasks as pending, in progress, or completed
 - **Points Rewards**: Earn points for completing tasks
-- **Due Date Management**: Never miss important deadlines
 
 ### 🤖 **AI Study Assistant**
 - **Intelligent Chatbot**: Powered by Google Gemini AI
@@ -65,20 +58,6 @@ A comprehensive web application designed to help students manage their study ses
 - **ESLint**: Code quality and consistency
 - **PostCSS**: CSS processing and optimization
 - **Git**: Version control and collaboration
-
-## 📱 User Interface
-
-### **Modern Design**
-- **Responsive Layout**: Works seamlessly on desktop, tablet, and mobile
-- **Clean Interface**: Minimalist design focused on productivity
-- **Dark/Light Mode**: Comfortable viewing in any environment
-- **Intuitive Navigation**: Easy-to-use navigation between features
-
-### **Interactive Elements**
-- **Real-time Updates**: Live data without page refreshes
-- **Smooth Animations**: Polished user experience
-- **Loading States**: Clear feedback during operations
-- **Error Handling**: User-friendly error messages
 
 ## 🚀 Getting Started
 
@@ -205,7 +184,7 @@ StudyAssistant/
 - Tracks consecutive days of study activity
 - Updates automatically when timer is used
 - Persists across sessions and devices
-- Shows both current and longest streaks
+- Shows current focused studying streaks
 
 ### **Points System**
 - Earn points for completing tasks
@@ -227,10 +206,6 @@ StudyAssistant/
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
 
-## 📝 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
 ## 🙏 Acknowledgments
 
 - **Google Gemini AI** for intelligent study assistance
@@ -240,7 +215,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📞 Support
 
-For support, email support@studyassistant.com or create an issue in this repository.
+For support, create an issue in this repository.
 
 ---
 
