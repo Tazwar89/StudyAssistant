@@ -4,6 +4,74 @@ import { useSubjects } from '../hooks/useSubjects.js';
 import { collection, addDoc, updateDoc, deleteDoc, doc, query, where, getDocs, orderBy, getDoc, onSnapshot } from 'firebase/firestore';
 import { db } from '../config/firebase.js';
 
+// List of all possible achievements (should match Profile.jsx)
+const ALL_ACHIEVEMENTS = [
+  { id: 3, name: 'Task Master', description: 'Complete 50 tasks', icon: '✅' },
+  { id: 4, name: 'Math Whiz', description: 'Complete 20 math-related tasks', icon: '🧮' },
+  { id: 12, name: 'Science Star', description: 'Complete 10 science-related tasks', icon: '🔬' },
+  { id: 13, name: 'Literature Lover', description: 'Complete 10 literature-related tasks', icon: '📖' },
+  { id: 14, name: 'History Buff', description: 'Complete 10 history-related tasks', icon: '🏺' },
+  { id: 11, name: 'Task Streak', description: 'Complete at least one task every day for 14 days', icon: '📅' },
+];
+
+// Helper to check and award task-based achievements
+async function checkAndAwardTaskAchievements(userId, tasks) {
+  let achievementsList = [];
+  // Fetch current achievementsList
+  const userDoc = await getDoc(doc(db, 'users', userId));
+  if (userDoc.exists()) {
+    achievementsList = userDoc.data().achievementsList || [];
+  }
+  const now = new Date().toISOString().split('T')[0];
+
+  // Helper to add achievement if not already present
+  const addAchievement = (id) => {
+    if (!achievementsList.some(a => a.id === id)) {
+      const ach = ALL_ACHIEVEMENTS.find(a => a.id === id);
+      if (ach) achievementsList = [...achievementsList, { ...ach, earned: true, date: now }];
+    }
+  };
+
+  // Task Master: Complete 50 tasks
+  const completedTasks = tasks.filter(t => t.status === 'completed').length;
+  if (completedTasks >= 50) addAchievement(3);
+  // Math Whiz: Complete 20 math-related tasks
+  const mathTasks = tasks.filter(t => t.status === 'completed' && t.subject && t.subject.toLowerCase().includes('math')).length;
+  if (mathTasks >= 20) addAchievement(4);
+  // Science Star: Complete 10 science-related tasks
+  const scienceTasks = tasks.filter(t => t.status === 'completed' && t.subject && t.subject.toLowerCase().includes('science')).length;
+  if (scienceTasks >= 10) addAchievement(12);
+  // Literature Lover: Complete 10 literature-related tasks
+  const literatureTasks = tasks.filter(t => t.status === 'completed' && t.subject && t.subject.toLowerCase().includes('literature')).length;
+  if (literatureTasks >= 10) addAchievement(13);
+  // History Buff: Complete 10 history-related tasks
+  const historyTasks = tasks.filter(t => t.status === 'completed' && t.subject && t.subject.toLowerCase().includes('history')).length;
+  if (historyTasks >= 10) addAchievement(14);
+  // Task Streak: Complete at least one task every day for 14 days
+  const completedDates = tasks.filter(t => t.status === 'completed' && t.completedAt).map(t => {
+    const d = t.completedAt instanceof Date ? t.completedAt : new Date(t.completedAt);
+    return d.toISOString().split('T')[0];
+  });
+  const uniqueDays = Array.from(new Set(completedDates));
+  // Check for 14 consecutive days
+  uniqueDays.sort();
+  let streak = 1, maxStreak = 1;
+  for (let i = 1; i < uniqueDays.length; i++) {
+    const prev = new Date(uniqueDays[i - 1]);
+    const curr = new Date(uniqueDays[i]);
+    if ((curr - prev) / (1000 * 60 * 60 * 24) === 1) {
+      streak++;
+      maxStreak = Math.max(maxStreak, streak);
+    } else {
+      streak = 1;
+    }
+  }
+  if (maxStreak >= 14) addAchievement(11);
+
+  // Save if new achievements were added
+  await updateDoc(doc(db, 'users', userId), { achievementsList });
+}
+
 const TaskManager = () => {
   const { currentUser } = useAuth();
   const { subjects, addSubject } = useSubjects();
@@ -151,6 +219,20 @@ const TaskManager = () => {
       
       console.log('=== ADD TASK SUCCESS ===');
       alert('Task added successfully!');
+
+      // Update user's totalTasks count
+      if (currentUser && currentUser.uid) {
+        try {
+          const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
+          const userData = userDoc.data();
+          const totalTasks = userData?.totalTasks || 0;
+          await updateDoc(doc(db, 'users', currentUser.uid), {
+            totalTasks: totalTasks + 1
+          });
+        } catch (error) {
+          console.error('Error updating user totalTasks:', error);
+        }
+      }
     } catch (error) {
       console.error('=== ADD TASK ERROR ===');
       console.error('Error adding task:', error);
@@ -180,33 +262,38 @@ const TaskManager = () => {
       });
       setTasks(tasks.map(task => task.id === id ? { ...task, status, updatedAt: new Date() } : task));
       
-      // Update user points when task status changes
+      // Update user points and completedTasks when task status changes
       if (currentUser && currentUser.uid) {
         try {
-                  // Get current user data
-        const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
-        const userData = userDoc.data();
-        
-        // Calculate current points
-        const currentPoints = userData?.points || 0;
-        let pointsToAdd = 0;
-        
-        if (status === 'completed') {
-          pointsToAdd = 50; // 50 points for completing a task
-        } else if (status === 'in-progress') {
-          pointsToAdd = 10; // 10 points for starting a task
-        }
-        
-        if (pointsToAdd > 0) {
-          await updateDoc(doc(db, 'users', currentUser.uid), {
-            points: currentPoints + pointsToAdd
-          });
-        }
+          const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
+          const userData = userDoc.data();
+          const currentPoints = userData?.points || 0;
+          let pointsToAdd = 0;
+          let completedTasks = userData?.completedTasks || 0;
+          // Find the task's previous status
+          const task = tasks.find(t => t.id === id);
+          const wasCompleted = task && task.status === 'completed';
+          if (status === 'completed' && !wasCompleted) {
+            completedTasks += 1;
+          } else if (wasCompleted && status !== 'completed') {
+            completedTasks = Math.max(0, completedTasks - 1);
+          }
+          if (status === 'completed') {
+            pointsToAdd = 50; // 50 points for completing a task
+          } else if (status === 'in-progress') {
+            pointsToAdd = 10; // 10 points for starting a task
+          }
+          const updateObj = {
+            points: currentPoints + pointsToAdd,
+            completedTasks: completedTasks
+          };
+          await updateDoc(doc(db, 'users', currentUser.uid), updateObj);
         } catch (error) {
-          console.error('Error updating user points:', error);
-          console.error('Error details:', error.code, error.message);
+          console.error('Error updating user points/completedTasks:', error);
         }
       }
+      // Check and award task-based achievements
+      await checkAndAwardTaskAchievements(currentUser.uid, tasks.map(task => task.id === id ? { ...task, status } : task));
     } catch (error) {
       console.error('Error updating task:', error);
     }
@@ -216,6 +303,19 @@ const TaskManager = () => {
     try {
       await deleteDoc(doc(db, 'tasks', id));
       setTasks(tasks.filter(task => task.id !== id));
+      // Update user's totalTasks count
+      if (currentUser && currentUser.uid) {
+        try {
+          const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
+          const userData = userDoc.data();
+          const totalTasks = userData?.totalTasks || 1;
+          await updateDoc(doc(db, 'users', currentUser.uid), {
+            totalTasks: Math.max(0, totalTasks - 1)
+          });
+        } catch (error) {
+          console.error('Error updating user totalTasks:', error);
+        }
+      }
     } catch (error) {
       console.error('Error deleting task:', error);
     }

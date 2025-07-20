@@ -13,6 +13,7 @@ import { AuthContext } from './AuthContext.js';
 
 export function AuthProvider({ children }) {
   const [currentUser, setCurrentUser] = useState(null);
+  const [firebaseUser, setFirebaseUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
   async function signup(email, password, displayName) {
@@ -62,6 +63,7 @@ export function AuthProvider({ children }) {
   // Listen for auth state changes
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      setFirebaseUser(user);
       if (user) {
         // Get additional user data from Firestore
         try {
@@ -120,6 +122,7 @@ export function AuthProvider({ children }) {
 
   const value = {
     currentUser,
+    firebaseUser,
     signup,
     login,
     logout,

@@ -140,6 +140,11 @@ const StudyTimer = () => {
           subjectStudyTime: subjectStudyTime,
           points: finalPoints
         });
+        // Check and award achievements
+        const userDoc1 = await getDoc(doc(db, 'users', currentUser.uid));
+        if (userDoc1.exists()) {
+          await checkAndAwardAchievements(currentUser.uid, userDoc1.data());
+        }
 
           } catch (error) {
             console.error('Error saving data on unmount:', error);
@@ -177,6 +182,11 @@ const StudyTimer = () => {
           subjectStudyTime: subjectStudyTime,
           points: finalPoints
         });
+        // Check and award achievements
+        const userDoc2 = await getDoc(doc(db, 'users', currentUser.uid));
+        if (userDoc2.exists()) {
+          await checkAndAwardAchievements(currentUser.uid, userDoc2.data());
+        }
       } catch (error) {
         console.error('Error saving user data:', error);
         console.error('Error details:', error.code, error.message);
@@ -215,6 +225,11 @@ const StudyTimer = () => {
           subjectStudyTime: subjectStudyTime,
           points: finalPoints
         });
+        // Check and award achievements
+        const userDoc3 = await getDoc(doc(db, 'users', currentUser.uid));
+        if (userDoc3.exists()) {
+          await checkAndAwardAchievements(currentUser.uid, userDoc3.data());
+        }
       } catch (error) {
         console.error('Error during periodic save:', error);
       }
@@ -261,6 +276,18 @@ const StudyTimer = () => {
       if (timerMode === 'pomodoro') {
         setSessions(prev => {
           const newSessions = prev + 1;
+          // Add to study history
+          if (currentUser && currentUser.uid && selectedSubjectRef.current) {
+            const today = new Date();
+            const dateStr = today.toISOString().split('T')[0];
+            // 1 Pomodoro = 25 min = 0.42h
+            addStudyHistoryEntry(
+              currentUser.uid,
+              dateStr,
+              0.42,
+              [selectedSubjectRef.current]
+            );
+          }
           // Auto-switch to break after 4 sessions
           if (newSessions % 4 === 0) {
             setTimerMode('long-break');
@@ -533,5 +560,83 @@ const StudyTimer = () => {
     </div>
   );
 };
+
+// List of all possible achievements (should match Profile.jsx)
+const ALL_ACHIEVEMENTS = [
+  { id: 1, name: 'First Steps', description: 'Complete your first study session', icon: '🎯' },
+  { id: 2, name: 'Week Warrior', description: 'Study for 7 consecutive days', icon: '🔥' },
+  { id: 3, name: 'Task Master', description: 'Complete 50 tasks', icon: '✅' },
+  { id: 4, name: 'Math Whiz', description: 'Complete 20 math-related tasks', icon: '🧮' },
+  { id: 5, name: 'Early Bird', description: 'Study before 8 AM for 5 days', icon: '🌅' },
+  { id: 6, name: 'Century Club', description: 'Study for 100 total hours', icon: '💯' },
+  { id: 8, name: 'Streak Master', description: 'Maintain a 30-day study streak', icon: '🏆' },
+  { id: 9, name: 'Subject Explorer', description: 'Study 5 different subjects', icon: '📚' },
+  { id: 10, name: 'Focus Pro', description: 'Complete 10 Pomodoro sessions in one week', icon: '⏳' },
+  { id: 11, name: 'Task Streak', description: 'Complete at least one task every day for 14 days', icon: '📅' },
+  { id: 12, name: 'Science Star', description: 'Complete 10 science-related tasks', icon: '🔬' },
+  { id: 13, name: 'Literature Lover', description: 'Complete 10 literature-related tasks', icon: '📖' },
+  { id: 14, name: 'History Buff', description: 'Complete 10 history-related tasks', icon: '🏺' },
+  { id: 15, name: 'Comeback Kid', description: 'Resume a streak after breaking it for at least 3 days', icon: '🔄' },
+  { id: 16, name: 'Goal Crusher', description: 'Achieve your weekly study goal 4 weeks in a row', icon: '🥇' },
+  { id: 17, name: 'Marathoner', description: 'Study for 4 hours in a single day', icon: '🏃‍♂️' },
+  { id: 18, name: 'Helper', description: 'Help a friend with their studies', icon: '🤝' },
+  { id: 19, name: 'AI Enthusiast', description: 'Use the AI Chatbot 10 times', icon: '🤖' },
+  { id: 20, name: 'Consistency Champ', description: 'Log in and study every day for a month', icon: '📆' },
+];
+
+// Helper to check and award achievements
+async function checkAndAwardAchievements(userId, userData) {
+  const { sessions, studyTime, streak, subjectStudyTime, customSubjects, weeklyGoal, weeklyProgress } = userData;
+  let achievementsList = userData.achievementsList || [];
+  const now = new Date().toISOString().split('T')[0];
+
+  // Helper to add achievement if not already present
+  const addAchievement = (id) => {
+    if (!achievementsList.some(a => a.id === id)) {
+      const ach = ALL_ACHIEVEMENTS.find(a => a.id === id);
+      if (ach) achievementsList = [...achievementsList, { ...ach, earned: true, date: now }];
+    }
+  };
+
+  // First Steps: Complete your first study session
+  if (sessions >= 1) addAchievement(1);
+  // Week Warrior: Study for 7 consecutive days (streak)
+  if (streak >= 7) addAchievement(2);
+  // Century Club: Study for 100 total hours
+  if ((studyTime / 3600) >= 100) addAchievement(6);
+  // Streak Master: 30-day streak
+  if (streak >= 30) addAchievement(8);
+  // Subject Explorer: Study 5 different subjects
+  if (customSubjects && customSubjects.length >= 5) addAchievement(9);
+  // Focus Pro: 10 Pomodoro sessions in a week (not tracked here, but if sessions >= 10, award)
+  if (sessions >= 10) addAchievement(10);
+  // Marathoner: Study for 4 hours in a single day (not tracked here, but if weeklyProgress >= 4, award)
+  if (weeklyProgress >= 4) addAchievement(17);
+  // Consistency Champ: Study every day for a month (streak >= 30)
+  if (streak >= 30) addAchievement(20);
+
+  // Save if new achievements were added
+  await updateDoc(doc(db, 'users', userId), { achievementsList });
+}
+
+// Helper to add a study history entry
+async function addStudyHistoryEntry(userId, date, hours, subjects) {
+  const userRef = doc(db, 'users', userId);
+  const userDoc = await getDoc(userRef);
+  let history = [];
+  if (userDoc.exists()) {
+    history = userDoc.data().studyHistory || [];
+  }
+  // If entry for this date exists, update it; else, add new
+  const idx = history.findIndex(h => h.date === date);
+  if (idx !== -1) {
+    // Update hours and subjects
+    history[idx].hours = (Number(history[idx].hours) + Number(hours));
+    history[idx].subjects = Array.from(new Set([...(history[idx].subjects || []), ...subjects]));
+  } else {
+    history.push({ date, hours, subjects });
+  }
+  await updateDoc(userRef, { studyHistory: history });
+}
 
 export default StudyTimer; 
