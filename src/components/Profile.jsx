@@ -1,5 +1,8 @@
 import { useState } from 'react';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../hooks/useAuth.js';
+import { updateProfile } from 'firebase/auth';
+import { doc, updateDoc } from 'firebase/firestore';
+import { db } from '../config/firebase.js';
 import { 
   UserIcon, 
   AcademicCapIcon, 
@@ -24,6 +27,11 @@ const Profile = () => {
     reminders: true,
     achievements: true
   });
+  const [editingName, setEditingName] = useState(false);
+  const [newName, setNewName] = useState(currentUser?.displayName || '');
+  const [nameLoading, setNameLoading] = useState(false);
+  const [nameError, setNameError] = useState('');
+  const [nameSuccess, setNameSuccess] = useState('');
 
   const [userStats] = useState({
     totalStudyTime: 156.5,
@@ -129,9 +137,56 @@ const Profile = () => {
               <div className="w-24 h-24 bg-gradient-to-r from-primary-500 to-purple-600 rounded-full mx-auto mb-4 flex items-center justify-center">
                 <UserIcon className="h-12 w-12 text-white" />
               </div>
-              <h2 className="text-xl font-bold text-gray-900">
-                {currentUser?.displayName || 'Student'}
-              </h2>
+              <div className="flex items-center justify-center space-x-2">
+                {editingName ? (
+                  <>
+                    <input
+                      type="text"
+                      className="text-xl font-bold text-gray-900 border rounded px-2 py-1 w-40"
+                      value={newName}
+                      onChange={e => setNewName(e.target.value)}
+                      disabled={nameLoading}
+                    />
+                    <button
+                      className="text-primary-600 hover:underline text-sm"
+                      onClick={async () => {
+                        setNameLoading(true);
+                        setNameError('');
+                        setNameSuccess('');
+                        try {
+                          if (!newName.trim()) throw new Error('Name cannot be empty');
+                          // Update Firebase Auth profile
+                          await updateProfile(currentUser, { displayName: newName });
+                          // Update Firestore user document
+                          await updateDoc(doc(db, 'users', currentUser.uid), { displayName: newName });
+                          setNameSuccess('Username updated!');
+                          setEditingName(false);
+                        } catch (err) {
+                          setNameError(err.message || 'Failed to update username');
+                        } finally {
+                          setNameLoading(false);
+                        }
+                      }}
+                      disabled={nameLoading}
+                    >Save</button>
+                    <button
+                      className="text-gray-500 hover:underline text-sm"
+                      onClick={() => { setEditingName(false); setNewName(currentUser?.displayName || ''); }}
+                      disabled={nameLoading}
+                    >Cancel</button>
+                  </>
+                ) : (
+                  <>
+                    <h2 className="text-xl font-bold text-gray-900">{currentUser?.displayName || 'Student'}</h2>
+                    <button
+                      className="ml-2 text-primary-600 hover:underline text-sm"
+                      onClick={() => setEditingName(true)}
+                    >Edit</button>
+                  </>
+                )}
+              </div>
+              {nameError && <div className="text-red-600 text-xs mt-1">{nameError}</div>}
+              {nameSuccess && <div className="text-green-600 text-xs mt-1">{nameSuccess}</div>}
               <p className="text-gray-600">{currentUser?.email}</p>
             </div>
 
