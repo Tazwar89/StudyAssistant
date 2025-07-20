@@ -1,6 +1,10 @@
 import { useState, useEffect } from 'react';
+import { useAuth } from '../hooks/useAuth.js';
+import { doc, getDoc, updateDoc, collection, query, where, onSnapshot } from 'firebase/firestore';
+import { db } from '../config/firebase.js';
 
 const Dashboard = () => {
+  const { currentUser } = useAuth();
   const [stats, setStats] = useState({
     totalTasks: 0,
     completedTasks: 0,
@@ -9,321 +13,267 @@ const Dashboard = () => {
     points: 0,
     upcomingDeadlines: 0
   });
+  const [pointsLoaded, setPointsLoaded] = useState(false);
 
   const [recentActivity, setRecentActivity] = useState([]);
   const [upcomingTasks, setUpcomingTasks] = useState([]);
-  const [weeklyData, setWeeklyData] = useState([]);
-  const [subjectData, setSubjectData] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  // Load and calculate stats from localStorage
+  // Load and calculate stats from Firestore with real-time listeners
   useEffect(() => {
-    // Load tasks from localStorage
-    const savedTasks = localStorage.getItem('studyAssistantTasks');
-    let tasks = [];
-    
-    if (savedTasks) {
-      tasks = JSON.parse(savedTasks);
-    } else {
-      // Default tasks if no saved data
-      tasks = [
-        { id: 1, title: 'Complete Math Assignment', subject: 'Mathematics', priority: 'high', dueDate: '2024-01-25', status: 'pending', description: 'Finish calculus problems 1-20' },
-        { id: 2, title: 'Physics Lab Report', subject: 'Physics', priority: 'high', dueDate: '2024-01-26', status: 'in-progress', description: 'Write lab report for pendulum experiment' },
-        { id: 3, title: 'Literature Essay', subject: 'English', priority: 'medium', dueDate: '2024-01-28', status: 'pending', description: 'Essay on Shakespeare\'s Hamlet' },
-        { id: 4, title: 'Programming Project', subject: 'Computer Science', priority: 'low', dueDate: '2024-01-30', status: 'completed', description: 'Build a simple calculator app' }
-      ];
-    }
+    if (!currentUser) return;
 
-    // Calculate stats
-    const totalTasks = tasks.length;
-    const completedTasks = tasks.filter(task => task.status === 'completed').length;
-    const inProgressTasks = tasks.filter(task => task.status === 'in-progress').length;
 
-    // Get upcoming deadlines (tasks due within 7 days)
-    const today = new Date();
-    const nextWeek = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000);
-    const upcomingDeadlines = tasks.filter(task => {
-      const dueDate = new Date(task.dueDate);
-      return dueDate >= today && dueDate <= nextWeek && task.status !== 'completed';
-    }).length;
 
-    // Load study time from localStorage
-    const savedStudyTime = localStorage.getItem('studyAssistantStudyTime');
-    const studyTimeSeconds = savedStudyTime ? parseInt(savedStudyTime) : 0;
-    const studyTimeHours = (studyTimeSeconds / 3600).toFixed(1);
+    // Set up real-time listener for user data changes
+    const unsubscribeUser = onSnapshot(doc(db, 'users', currentUser.uid), (userDoc) => {
+      if (userDoc.exists()) {
+        const userData = userDoc.data();
 
-    // Load sessions from localStorage
-    const savedSessions = localStorage.getItem('studyAssistantSessions');
-    const sessions = savedSessions ? parseInt(savedSessions) : 0;
 
-    // Calculate Study Streak
-    const calculateStudyStreak = () => {
-      const savedStreakData = localStorage.getItem('studyAssistantStreak');
-      if (!savedStreakData) {
-        // Initialize streak data
-        const streakData = {
-          currentStreak: 0,
-          lastStudyDate: null,
-          longestStreak: 0
-        };
-        localStorage.setItem('studyAssistantStreak', JSON.stringify(streakData));
-        return 0;
-      }
+        // Get current sessions and study time from user data
+        const currentSessions = userData?.sessions || 0;
+        const currentStudyTime = userData?.studyTime || 0;
+        const currentPoints = userData?.points || 0;
 
-      const streakData = JSON.parse(savedStreakData);
-      const today = new Date().toDateString();
-      
-      // If user has studied today (has study time or sessions), update streak
-      if (studyTimeSeconds > 0 || sessions > 0) {
-        if (streakData.lastStudyDate !== today) {
-          // Check if yesterday was studied (consecutive day)
-          const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toDateString();
-          if (streakData.lastStudyDate === yesterday) {
-            streakData.currentStreak += 1;
-          } else {
-            streakData.currentStreak = 1; // Reset streak if missed a day
-          }
-          streakData.lastStudyDate = today;
+        // Get study time from user data
+        const studyTimeSeconds = currentStudyTime;
+        const studyTimeHours = (studyTimeSeconds / 3600).toFixed(1);
+
+        // Get sessions from user data
+        const sessions = currentSessions;
+
+        // Calculate Study Streak
+        const calculateStudyStreak = () => {
+          // Use existing streak data or initialize
+          const streakData = userData?.streakData || {
+            currentStreak: 0,
+            lastStudyDate: null,
+            longestStreak: 0
+          };
           
-          // Update longest streak if current is longer
-          if (streakData.currentStreak > streakData.longestStreak) {
-            streakData.longestStreak = streakData.currentStreak;
+          const today = new Date().toDateString();
+          
+          // If user has studied today (has study time or sessions), update streak
+          if (studyTimeSeconds > 0 || sessions > 0) {
+            if (streakData.lastStudyDate !== today) {
+              // Check if yesterday was studied (consecutive day)
+              const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toDateString();
+              
+              if (streakData.lastStudyDate === yesterday) {
+                streakData.currentStreak += 1;
+              } else {
+                streakData.currentStreak = 1; // Reset streak if missed a day
+              }
+              streakData.lastStudyDate = today;
+              
+              // Update longest streak if current is longer
+              if (streakData.currentStreak > streakData.longestStreak) {
+                streakData.longestStreak = streakData.currentStreak;
+              }
+              
+              // Update user document with new streak data
+              updateDoc(doc(db, 'users', currentUser.uid), {
+                streakData: streakData,
+                streak: streakData.currentStreak,
+                longestStreak: streakData.longestStreak
+              }).catch(error => {
+                console.error('Error updating streak data:', error);
+              });
+            }
           }
           
-          localStorage.setItem('studyAssistantStreak', JSON.stringify(streakData));
-        }
-      }
-      
-      return streakData.currentStreak;
-    };
-
-    // Calculate Points Earned
-    const calculatePoints = () => {
-      const savedPoints = localStorage.getItem('studyAssistantPoints');
-      let currentPoints = savedPoints ? parseInt(savedPoints) : 0;
-      
-      // Calculate points from today's activity
-      let todayPoints = 0;
-      
-      // Points for completed tasks (50 points each)
-      todayPoints += completedTasks * 50;
-      
-      // Points for study time (10 points per hour)
-      todayPoints += Math.floor(studyTimeSeconds / 3600) * 10;
-      
-      // Points for Pomodoro sessions (25 points each)
-      todayPoints += sessions * 25;
-      
-      // Points for in-progress tasks (10 points each)
-      todayPoints += inProgressTasks * 10;
-      
-      // Check if we already counted today's points
-      const savedLastPointsDate = localStorage.getItem('studyAssistantLastPointsDate');
-      const today = new Date().toDateString();
-      
-      if (savedLastPointsDate !== today) {
-        // Add today's points to total
-        currentPoints += todayPoints;
-        localStorage.setItem('studyAssistantPoints', currentPoints.toString());
-        localStorage.setItem('studyAssistantLastPointsDate', today);
-      }
-      
-      return currentPoints;
-    };
-
-    // Generate Weekly Study Data
-    const generateWeeklyData = () => {
-      const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-      const today = new Date();
-      const currentDay = today.getDay(); // 0 = Sunday, 1 = Monday, etc.
-      
-      // Simulate weekly data based on current study time
-      const weeklyData = days.map((day, index) => {
-        let hours = 0;
-        
-        // Today gets the actual study time
-        if (index === (currentDay === 0 ? 6 : currentDay - 1)) {
-          hours = parseFloat(studyTimeHours);
-        } else {
-          // Simulate other days with some variation
-          const baseHours = parseFloat(studyTimeHours) * 0.3; // 30% of today's time
-          hours = Math.max(0, baseHours + (Math.random() - 0.5) * 2); // Add some randomness
-        }
-        
-        return {
-          day,
-          hours: Math.round(hours * 10) / 10, // Round to 1 decimal
-          percentage: Math.min(100, (hours / 4) * 100) // Assume 4 hours is max
+          return streakData.currentStreak;
         };
-      });
-      
-      return weeklyData;
-    };
 
-    // Generate Subject Study Data
-    const generateSubjectData = () => {
-      // Load real subject study time from localStorage
-      const savedSubjectTime = localStorage.getItem('studyAssistantSubjectTime');
-      const subjectStudyTime = savedSubjectTime ? JSON.parse(savedSubjectTime) : {};
-      
-      // Get current subjects from tasks
-      const currentSubjects = [...new Set(tasks.map(task => task.subject))];
-      
-      // Clean up subject study time for subjects that no longer have tasks
-      const cleanedSubjectTime = {};
-      Object.entries(subjectStudyTime).forEach(([subject, seconds]) => {
-        if (currentSubjects.includes(subject)) {
-          cleanedSubjectTime[subject] = seconds;
-        }
-      });
-      
-      // Save cleaned data back to localStorage if changes were made
-      if (Object.keys(cleanedSubjectTime).length !== Object.keys(subjectStudyTime).length) {
-        localStorage.setItem('studyAssistantSubjectTime', JSON.stringify(cleanedSubjectTime));
-      }
-      
-      if (Object.keys(cleanedSubjectTime).length === 0) {
-        // Fallback to simulated data if no real data exists
-        const subjectMap = {};
-        
-        // Count tasks by subject
-        tasks.forEach(task => {
-          if (!subjectMap[task.subject]) {
-            subjectMap[task.subject] = {
-              subject: task.subject,
-              tasks: 0,
-              completed: 0,
-              studyTime: 0
-            };
+        // Calculate the current streak
+        const currentStreak = calculateStudyStreak();
+
+
+
+        // Generate Recent Activity
+        const generateRecentActivity = () => {
+          const activities = [];
+          
+          // Add study session activity
+          if (sessions > 0) {
+            activities.push({
+              type: 'study',
+              message: `Completed ${sessions} Pomodoro session${sessions > 1 ? 's' : ''}`,
+              time: new Date(),
+              icon: '📚'
+            });
           }
-          subjectMap[task.subject].tasks += 1;
-          if (task.status === 'completed') {
-            subjectMap[task.subject].completed += 1;
+          
+          // Add study time activity (only if there's actual study time)
+          if (studyTimeSeconds > 0) {
+            const hours = parseFloat(studyTimeHours);
+            if (hours > 0) {
+              activities.push({
+                type: 'time',
+                message: `Studied for ${hours.toFixed(1)} hours`,
+                time: new Date(),
+                icon: '⏱️'
+              });
+            }
           }
-        });
-        
-        // Distribute study time across subjects (simulate based on task count)
-        const totalStudyTime = parseFloat(studyTimeHours);
-        const subjects = Object.values(subjectMap);
-        const totalTasks = subjects.reduce((sum, subj) => sum + subj.tasks, 0);
-        
-        subjects.forEach(subject => {
-          const proportion = totalTasks > 0 ? subject.tasks / totalTasks : 1 / subjects.length;
-          subject.studyTime = Math.round(totalStudyTime * proportion * 10) / 10;
-          subject.percentage = Math.min(100, (subject.studyTime / Math.max(1, totalStudyTime)) * 100);
-        });
-        
-        return subjects.sort((a, b) => b.studyTime - a.studyTime);
-      }
-      
-      // Use real subject study time data
-      const subjects = Object.entries(cleanedSubjectTime).map(([subject, seconds]) => {
-        const hours = seconds / 3600; // Convert seconds to hours
-        const totalStudyTime = parseFloat(studyTimeHours);
-        const percentage = totalStudyTime > 0 ? (hours / totalStudyTime) * 100 : 0;
-        
-        return {
-          subject,
-          studyTime: Math.round(hours * 10) / 10, // Round to 1 decimal
-          percentage: Math.min(100, percentage),
-          seconds: seconds
+          
+          // Add task completion activities
+          const completedTasks = tasks.filter(task => task.status === 'completed');
+          completedTasks.forEach(task => {
+            if (task.completedAt) {
+              activities.push({
+                type: 'task',
+                message: `Completed task: ${task.title}`,
+                time: task.completedAt.toDate ? task.completedAt.toDate() : new Date(task.completedAt),
+                icon: '✅'
+              });
+            }
+          });
+          
+          // Sort by time (most recent first)
+          activities.sort((a, b) => b.time - a.time);
+          
+          return activities.slice(0, 5);
         };
-      });
-      
-      return subjects.sort((a, b) => b.seconds - a.seconds);
-    };
 
-    const studyStreak = calculateStudyStreak();
-    const totalPoints = calculatePoints();
-    const weeklyStudyData = generateWeeklyData();
-    const subjectStudyData = generateSubjectData();
+        // Update stats with real-time data
+        setStats(prevStats => {
+          const newStats = {
+            totalTasks: prevStats.totalTasks, // Will be updated by tasks listener
+            completedTasks: prevStats.completedTasks, // Will be updated by tasks listener
+            studyTime: parseFloat(studyTimeHours),
+            streak: currentStreak,
+            points: currentPoints,
+            upcomingDeadlines: prevStats.upcomingDeadlines // Will be updated by tasks listener
+          };
+          setPointsLoaded(true);
+          return newStats;
+        });
 
-    setStats({
-      totalTasks,
-      completedTasks,
-      studyTime: parseFloat(studyTimeHours),
-      streak: studyStreak,
-      points: totalPoints,
-      upcomingDeadlines
+        // Set data
+
+        // Note: Recent activity will be updated when tasks are loaded
+        setLoading(false);
+      }
     });
 
-    setWeeklyData(weeklyStudyData);
-    setSubjectData(subjectStudyData);
-
-    // Set upcoming tasks for display
-    const upcomingTasksList = tasks
-      .filter(task => task.status !== 'completed')
-      .sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate))
-      .slice(0, 3);
-    
-    setUpcomingTasks(upcomingTasksList);
-
-    // Generate real recent activity
-    const generateRecentActivity = () => {
-      const activities = [];
-      const now = new Date();
-
-      // Add completed tasks as activities
-      const completedTasks = tasks.filter(task => task.status === 'completed');
-      completedTasks.forEach((task, index) => {
-        const timeAgo = new Date(now.getTime() - (index + 1) * 2 * 60 * 60 * 1000); // Simulate completion times
-        activities.push({
-          id: `task-${task.id}`,
-          task: task.title,
-          time: formatTimeAgo(timeAgo),
-          type: 'completed',
-          timestamp: timeAgo.getTime()
-        });
-      });
-
-      // Add in-progress tasks as activities
-      const inProgressTasks = tasks.filter(task => task.status === 'in-progress');
-      inProgressTasks.forEach((task, index) => {
-        const timeAgo = new Date(now.getTime() - (index + 1) * 3 * 60 * 60 * 1000); // Simulate start times
-        activities.push({
-          id: `start-${task.id}`,
-          task: `Started ${task.title}`,
-          time: formatTimeAgo(timeAgo),
-          type: 'started',
-          timestamp: timeAgo.getTime()
-        });
-      });
-
-      // Add study sessions as activities
-      if (sessions > 0) {
-        const sessionTime = new Date(now.getTime() - 1 * 60 * 60 * 1000); // 1 hour ago
-        activities.push({
-          id: 'study-session',
-          task: `Completed ${sessions} Pomodoro session${sessions > 1 ? 's' : ''}`,
-          time: formatTimeAgo(sessionTime),
-          type: 'study',
-          timestamp: sessionTime.getTime()
-        });
-      }
-
-      // Add study time milestone
-      if (studyTimeSeconds > 0) {
-        const milestoneTime = new Date(now.getTime() - 30 * 60 * 1000); // 30 minutes ago
-        const hours = Math.floor(studyTimeSeconds / 3600);
-        const minutes = Math.floor((studyTimeSeconds % 3600) / 60);
-        if (hours > 0 || minutes > 0) {
-          activities.push({
-            id: 'study-time',
-            task: `Studied for ${hours > 0 ? `${hours}h ` : ''}${minutes}m today`,
-            time: formatTimeAgo(milestoneTime),
-            type: 'study',
-            timestamp: milestoneTime.getTime()
-          });
+    // Set up real-time listener for tasks changes
+    const tasksQuery = query(collection(db, 'tasks'), where('userId', '==', currentUser.uid));
+    const unsubscribeTasks = onSnapshot(tasksQuery, (tasksSnapshot) => {
+      const tasks = tasksSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      console.log('Dashboard: Tasks updated:', tasks.length, 'tasks');
+      
+      // Calculate stats with updated tasks
+      const totalTasks = tasks.length;
+      const completedTasks = tasks.filter(task => task.status === 'completed').length;
+      const inProgressTasks = tasks.filter(task => task.status === 'in-progress').length;
+      
+      // Get upcoming deadlines (tasks due within 7 days)
+      const today = new Date();
+      const nextWeek = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000);
+      const upcomingDeadlines = tasks.filter(task => {
+        const dueDate = new Date(task.dueDate);
+        return dueDate >= today && dueDate <= nextWeek && task.status !== 'completed';
+      }).length;
+      
+      // Update stats immediately - preserve points and other user data
+      setStats(prevStats => {
+        const newStats = {
+          ...prevStats,
+          totalTasks,
+          completedTasks,
+          upcomingDeadlines
+        };
+        // Ensure points are preserved once loaded
+        if (pointsLoaded && prevStats.points > 0) {
+          newStats.points = prevStats.points;
+          console.log('Dashboard: Points preserved:', prevStats.points);
+        } else {
+          console.log('Dashboard: Points not preserved - pointsLoaded:', pointsLoaded, 'prevPoints:', prevStats.points);
         }
-      }
+        console.log('Dashboard: Task stats updated:', newStats);
+        return newStats;
+      });
+      
+      // Update upcoming tasks - show pending tasks instead of just due dates
+      const upcomingTasksData = tasks
+        .filter(task => task.status === 'pending')
+        .sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate))
+        .slice(0, 5);
+      
+      setUpcomingTasks(upcomingTasksData);
+      console.log('Dashboard: Upcoming tasks:', upcomingTasksData.length, 'tasks');
+      
+      // Update recent activity with task completion data
+      const generateRecentActivityWithTasks = () => {
+        const activities = [];
+        
+        // Get current user data for study activities
+        const userDoc = doc(db, 'users', currentUser.uid);
+        getDoc(userDoc).then((userSnapshot) => {
+          if (userSnapshot.exists()) {
+            const userData = userSnapshot.data();
+            const currentSessions = userData?.sessions || 0;
+            const currentStudyTime = userData?.studyTime || 0;
+            const studyTimeHours = (currentStudyTime / 3600).toFixed(1);
+            
+            // Add study session activity
+            if (currentSessions > 0) {
+              activities.push({
+                type: 'study',
+                message: `Completed ${currentSessions} Pomodoro session${currentSessions > 1 ? 's' : ''}`,
+                time: new Date(),
+                icon: '📚'
+              });
+            }
+            
+            // Add study time activity (only if there's actual study time)
+            if (currentStudyTime > 0) {
+              const hours = parseFloat(studyTimeHours);
+              if (hours > 0) {
+                activities.push({
+                  type: 'time',
+                  message: `Studied for ${hours.toFixed(1)} hours`,
+                  time: new Date(),
+                  icon: '⏱️'
+                });
+              }
+            }
+          }
+        });
+        
+        // Add task completion activities
+        const completedTasks = tasks.filter(task => task.status === 'completed');
+        completedTasks.forEach(task => {
+          if (task.completedAt) {
+            activities.push({
+              type: 'task',
+              message: `Completed task: ${task.title}`,
+              time: task.completedAt.toDate ? task.completedAt.toDate() : new Date(task.completedAt),
+              icon: '✅'
+            });
+          }
+        });
+        
+        // Sort by time (most recent first)
+        activities.sort((a, b) => b.time - a.time);
+        
+        setRecentActivity(activities.slice(0, 5));
+      };
+      
+      generateRecentActivityWithTasks();
+      
+      console.log('Dashboard: Stats updated -', { totalTasks, completedTasks, upcomingDeadlines });
+    }, (error) => {
+      console.error('Error loading tasks in Dashboard:', error);
+    });
 
-      // Sort by timestamp (most recent first) and take top 4
-      return activities
-        .sort((a, b) => b.timestamp - a.timestamp)
-        .slice(0, 4);
+    return () => {
+      unsubscribeUser();
+      unsubscribeTasks();
     };
-
-    setRecentActivity(generateRecentActivity());
-  }, []);
+  }, [currentUser]);
 
   // Helper function to format time ago
   const formatTimeAgo = (date) => {
@@ -354,6 +304,36 @@ const Dashboard = () => {
     return 10;
   };
 
+  // Calculate points needed to reach next level
+  const getPointsToNextLevel = (points, currentLevel) => {
+    const levelThresholds = [0, 100, 300, 600, 1000, 1500, 2100, 2800, 3600, 4500];
+    if (currentLevel >= 10) return 0;
+    return levelThresholds[currentLevel] - points;
+  };
+
+  // Calculate level progress percentage
+  const getLevelProgress = (points, currentLevel) => {
+    const levelThresholds = [0, 100, 300, 600, 1000, 1500, 2100, 2800, 3600, 4500];
+    if (currentLevel >= 10) return 100;
+    
+    const currentLevelThreshold = levelThresholds[currentLevel - 1] || 0;
+    const nextLevelThreshold = levelThresholds[currentLevel];
+    const progressInLevel = points - currentLevelThreshold;
+    const pointsNeededForLevel = nextLevelThreshold - currentLevelThreshold;
+    
+    return Math.min(100, (progressInLevel / pointsNeededForLevel) * 100);
+  };
+
+  if (loading) {
+    return (
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="flex items-center justify-center h-64">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        </div>
+      </div>
+    );
+  }
+
   const progressPercentage = stats.totalTasks > 0 ? Math.round((stats.completedTasks / stats.totalTasks) * 100) : 0;
   const userLevel = calculateLevel(stats.points);
 
@@ -361,7 +341,7 @@ const Dashboard = () => {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Welcome Section */}
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">Welcome back, Student! 👋</h1>
+        <h1 className="text-3xl font-bold text-gray-900 mb-2">Welcome back, {currentUser.displayName || 'Student'}! 👋</h1>
         <p className="text-gray-600">Here's your study progress for today</p>
       </div>
 
@@ -426,166 +406,97 @@ const Dashboard = () => {
               <p className="text-2xl font-bold text-gray-900">{stats.points}</p>
             </div>
           </div>
-          <p className="text-xs text-gray-500 mt-2">Level {userLevel} Student</p>
+          <p className="text-xs text-gray-500 mt-2">Level {userLevel}</p>
         </div>
       </div>
 
-      {/* Points Breakdown */}
-      <div className="bg-white rounded-lg shadow-md p-6 mb-8">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">🎯 Points System</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
-          <div className="flex items-center space-x-2">
-            <span className="text-green-600">✓</span>
-            <span>Completed Task: <strong>50 points</strong></span>
-          </div>
-          <div className="flex items-center space-x-2">
-            <span className="text-blue-600">⏰</span>
-            <span>Study Hour: <strong>10 points</strong></span>
-          </div>
-          <div className="flex items-center space-x-2">
-            <span className="text-purple-600">🍅</span>
-            <span>Pomodoro Session: <strong>25 points</strong></span>
-          </div>
-          <div className="flex items-center space-x-2">
-            <span className="text-orange-600">▶️</span>
-            <span>Started Task: <strong>10 points</strong></span>
-          </div>
-        </div>
-      </div>
 
-      {/* Real Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-        {/* Weekly Study Hours Chart */}
-        <div className="bg-white rounded-lg shadow-md p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Study Hours This Week</h3>
-          <div className="h-64 flex items-end justify-between space-x-2">
-            {weeklyData.map((day) => (
-              <div key={day.day} className="flex flex-col items-center flex-1">
-                <div className="w-full bg-gray-200 rounded-t-lg relative" style={{ height: '200px' }}>
-                  <div 
-                    className="bg-blue-500 rounded-t-lg transition-all duration-500 ease-out"
-                    style={{ 
-                      height: `${day.percentage}%`,
-                      minHeight: day.hours > 0 ? '4px' : '0px'
-                    }}
-                  ></div>
-                </div>
-                <div className="mt-2 text-center">
-                  <p className="text-xs font-medium text-gray-900">{day.hours}h</p>
-                  <p className="text-xs text-gray-500">{day.day}</p>
-                </div>
+
+      {/* Points System */}
+      <div className="bg-gradient-to-r from-purple-500 to-pink-500 rounded-lg shadow-md p-6 mb-8 text-white">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-xl font-bold mb-2">Points System</h3>
+            <p className="text-purple-100 mb-4">Track your progress and earn rewards</p>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <p className="text-2xl font-bold">{stats.points}</p>
+                <p className="text-sm text-purple-100">Total Points</p>
               </div>
-            ))}
+              <div>
+                <p className="text-2xl font-bold">Level {userLevel}</p>
+                <p className="text-sm text-purple-100">Current Level</p>
+              </div>
+            </div>
           </div>
-          <div className="mt-4 text-center">
-            <p className="text-sm text-gray-600">
-              Total: {weeklyData.reduce((sum, day) => sum + day.hours, 0).toFixed(1)}h this week
+          <div className="text-right">
+            <div className="text-4xl mb-2">🏆</div>
+            <p className="text-sm text-purple-100">
+              {userLevel < 10 ? `${getPointsToNextLevel(stats.points, userLevel)} points to next level` : 'Max level reached!'}
             </p>
           </div>
         </div>
-
-        {/* Study Time by Subject Chart */}
-        <div className="bg-white rounded-lg shadow-md p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Study Time by Subject</h3>
-          <div className="h-64 space-y-3">
-            {subjectData.length > 0 ? (
-              subjectData.map((subject) => (
-                <div key={subject.subject} className="flex items-center space-x-3">
-                  <div className="w-24 text-sm font-medium text-gray-900 truncate">
-                    {subject.subject}
-                  </div>
-                  <div className="flex-1 bg-gray-200 rounded-full h-4">
-                    <div 
-                      className="bg-gradient-to-r from-blue-500 to-purple-600 h-4 rounded-full transition-all duration-500 ease-out"
-                      style={{ width: `${subject.percentage}%` }}
-                    ></div>
-                  </div>
-                  <div className="w-16 text-right text-sm font-medium text-gray-900">
-                    {subject.studyTime}h
-                  </div>
-                </div>
-              ))
-            ) : (
-              <div className="h-full flex items-center justify-center">
-                <p className="text-gray-500">No subject data available</p>
-              </div>
-            )}
+        <div className="mt-4">
+          <div className="w-full bg-purple-300 rounded-full h-2">
+            <div 
+              className="bg-white h-2 rounded-full transition-all duration-300" 
+              style={{ 
+                width: `${userLevel < 10 ? Math.min(100, getLevelProgress(stats.points, userLevel)) : 100}%` 
+              }}
+            ></div>
           </div>
-          <div className="mt-4 text-center">
-            <p className="text-sm text-gray-600">
-              {subjectData.length} subjects • {subjectData.reduce((sum, subject) => sum + subject.studyTime, 0).toFixed(1)}h total
-            </p>
-          </div>
+          <p className="text-xs text-purple-100 mt-1">
+            {userLevel < 10 ? `Progress to Level ${userLevel + 1}` : 'Maximum level achieved!'}
+          </p>
         </div>
       </div>
 
-      {/* Upcoming Tasks and Recent Activity */}
+      {/* Recent Activity & Upcoming Tasks */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        {/* Recent Activity */}
         <div className="bg-white rounded-lg shadow-md p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-gray-900">Upcoming Deadlines</h3>
-            <span className="text-gray-400 text-xl">📅</span>
-          </div>
-          <div className="space-y-3">
-            {upcomingTasks.length > 0 ? (
-              upcomingTasks.map((task) => (
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Recent Activity</h3>
+          {recentActivity.length > 0 ? (
+            <div className="space-y-3">
+              {recentActivity.map((activity, index) => (
+                <div key={index} className="flex items-center space-x-3">
+                  <span className="text-lg">{activity.icon}</span>
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-gray-900">{activity.message}</p>
+                    <p className="text-xs text-gray-500">{formatTimeAgo(activity.time)}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-gray-500 text-center py-4">No recent activity</p>
+          )}
+        </div>
+
+        {/* Upcoming Tasks */}
+        <div className="bg-white rounded-lg shadow-md p-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Upcoming Tasks</h3>
+          {upcomingTasks.length > 0 ? (
+            <div className="space-y-3">
+              {upcomingTasks.map((task) => (
                 <div key={task.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                   <div>
-                    <p className="font-medium text-gray-900">{task.title}</p>
-                    <p className="text-sm text-gray-600">{task.subject}</p>
+                    <p className="text-sm font-medium text-gray-900">{task.title}</p>
+                    <p className="text-xs text-gray-500">{task.subject} • Due {new Date(task.dueDate).toLocaleDateString()}</p>
                   </div>
-                  <div className="text-right">
-                    <p className="text-sm font-medium text-gray-900">{task.dueDate}</p>
-                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                      task.priority === 'high' ? 'bg-red-100 text-red-800' : 'bg-blue-100 text-blue-800'
-                    }`}>
-                      {task.priority}
-                    </span>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <div className="text-center py-4">
-                <p className="text-gray-500">No upcoming deadlines</p>
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="bg-white rounded-lg shadow-md p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-gray-900">Recent Activity</h3>
-            <span className="text-gray-400 text-xl">🎓</span>
-          </div>
-          <div className="space-y-3">
-            {recentActivity.length > 0 ? (
-              recentActivity.map((activity) => (
-                <div key={activity.id} className="flex items-center space-x-3">
-                  <div className={`p-2 rounded-full ${
-                    activity.type === 'completed' ? 'bg-green-100' : 
-                    activity.type === 'study' ? 'bg-purple-100' : 'bg-blue-100'
+                  <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                    task.priority === 'high' ? 'bg-red-100 text-red-800' :
+                    task.priority === 'medium' ? 'bg-yellow-100 text-yellow-800' :
+                    'bg-green-100 text-green-800'
                   }`}>
-                    <span className={`text-sm ${
-                      activity.type === 'completed' ? 'text-green-600' : 
-                      activity.type === 'study' ? 'text-purple-600' : 'text-blue-600'
-                    }`}>
-                      {activity.type === 'completed' ? '✓' : 
-                       activity.type === 'study' ? '⏰' : '▶️'}
-                    </span>
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-sm font-medium text-gray-900">{activity.task}</p>
-                    <p className="text-xs text-gray-500">{activity.time}</p>
-                  </div>
+                    {task.priority}
+                  </span>
                 </div>
-              ))
-            ) : (
-              <div className="text-center py-4">
-                <p className="text-gray-500">No recent activity</p>
-                <p className="text-xs text-gray-400 mt-1">Complete tasks or start studying to see activity here</p>
-              </div>
-            )}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-gray-500 text-center py-4">No upcoming tasks</p>
+          )}
         </div>
       </div>
     </div>

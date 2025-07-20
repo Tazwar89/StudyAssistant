@@ -1,20 +1,16 @@
 import { useState, useEffect } from 'react';
+import { useAuth } from '../hooks/useAuth.js';
+import { useSubjects } from '../hooks/useSubjects.js';
+import { collection, addDoc, updateDoc, deleteDoc, doc, query, where, getDocs, orderBy, getDoc, onSnapshot } from 'firebase/firestore';
+import { db } from '../config/firebase.js';
 
 const TaskManager = () => {
-  // Load tasks from localStorage on component mount
-  const [tasks, setTasks] = useState(() => {
-    const savedTasks = localStorage.getItem('studyAssistantTasks');
-    if (savedTasks) {
-      return JSON.parse(savedTasks);
-    }
-    // Default tasks if no saved data
-    return [
-      { id: 1, title: 'Complete Math Assignment', subject: 'Mathematics', priority: 'high', dueDate: '2024-01-25', status: 'pending', description: 'Finish calculus problems 1-20' },
-      { id: 2, title: 'Physics Lab Report', subject: 'Physics', priority: 'high', dueDate: '2024-01-26', status: 'in-progress', description: 'Write lab report for pendulum experiment' },
-      { id: 3, title: 'Literature Essay', subject: 'English', priority: 'medium', dueDate: '2024-01-28', status: 'pending', description: 'Essay on Shakespeare\'s Hamlet' },
-      { id: 4, title: 'Programming Project', subject: 'Computer Science', priority: 'low', dueDate: '2024-01-30', status: 'completed', description: 'Build a simple calculator app' }
-    ];
-  });
+  const { currentUser } = useAuth();
+  const { subjects, addSubject } = useSubjects();
+  const [tasks, setTasks] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showAddSubject, setShowAddSubject] = useState(false);
+  const [newSubject, setNewSubject] = useState('');
 
   const [newTask, setNewTask] = useState({
     title: '',
@@ -26,31 +22,247 @@ const TaskManager = () => {
 
   const [showAddForm, setShowAddForm] = useState(false);
   const [activeFilter, setActiveFilter] = useState('all');
+  const [listenerFailed, setListenerFailed] = useState(false);
 
-  // Save tasks to localStorage whenever tasks change
+  // Load tasks from Firestore with real-time listener
   useEffect(() => {
-    localStorage.setItem('studyAssistantTasks', JSON.stringify(tasks));
-  }, [tasks]);
+    if (!currentUser || !currentUser.uid) {
+      console.log('No current user, skipping task load');
+      setLoading(false);
+      return;
+    }
 
-  const addTask = () => {
-    if (newTask.title && newTask.subject && newTask.dueDate) {
-      const task = {
-        id: Date.now(),
-        ...newTask,
-        status: 'pending'
+    console.log('=== TASK LOADING DEBUG ===');
+    console.log('Current user:', currentUser.uid);
+
+    const tasksQuery = query(
+      collection(db, 'tasks'), 
+      where('userId', '==', currentUser.uid),
+      orderBy('createdAt', 'desc')
+    );
+
+    console.log('Tasks query created:', tasksQuery);
+
+    const unsubscribe = onSnapshot(tasksQuery, (snapshot) => {
+      console.log('Tasks snapshot received:', snapshot.docs.length, 'tasks');
+      const tasksData = snapshot.docs.map(doc => {
+        const data = doc.data();
+        console.log('Task data:', { id: doc.id, ...data });
+        return { id: doc.id, ...data };
+      });
+      setTasks(tasksData);
+      setLoading(false);
+      console.log('Tasks state updated:', tasksData.length, 'tasks');
+    }, (error) => {
+      console.error('=== TASK LOADING ERROR ===');
+      console.error('Error loading tasks:', error);
+      console.error('Error code:', error.code);
+      console.error('Error message:', error.message);
+      console.error('Error stack:', error.stack);
+      setListenerFailed(true);
+      setLoading(false);
+      
+      // Try to load tasks without orderBy if there's an index error
+      if (error.code === 'failed-precondition') {
+        console.log('Trying to load tasks without orderBy...');
+        const simpleQuery = query(
+          collection(db, 'tasks'), 
+          where('userId', '==', currentUser.uid)
+        );
+        
+        const simpleUnsubscribe = onSnapshot(simpleQuery, (simpleSnapshot) => {
+          console.log('Simple query snapshot received:', simpleSnapshot.docs.length, 'tasks');
+          const simpleTasksData = simpleSnapshot.docs.map(doc => {
+            const data = doc.data();
+            return { id: doc.id, ...data };
+          }).sort((a, b) => b.createdAt?.toDate?.() - a.createdAt?.toDate?.());
+          
+          setTasks(simpleTasksData);
+          setLoading(false);
+          console.log('Simple tasks state updated:', simpleTasksData.length, 'tasks');
+        }, (simpleError) => {
+          console.error('Simple query also failed:', simpleError);
+          setLoading(false);
+          // Try manual loading as last resort
+          loadTasksManually();
+        });
+        
+        return () => simpleUnsubscribe();
+      } else {
+        // For other errors, try manual loading
+        loadTasksManually();
+      }
+    });
+
+    return () => {
+      console.log('Cleaning up task listener');
+      unsubscribe();
+    };
+  }, [currentUser]);
+
+  const addTask = async () => {
+    console.log('=== ADD TASK DEBUG ===');
+    console.log('New task data:', newTask);
+    console.log('Current user:', currentUser);
+    
+    if (!currentUser || !currentUser.uid) {
+      console.error('No current user found');
+      alert('Please log in to add tasks.');
+      return;
+    }
+    
+    if (!newTask.title || !newTask.subject || !newTask.dueDate) {
+      console.error('Missing required fields:', {
+        title: !!newTask.title,
+        subject: !!newTask.subject,
+        dueDate: !!newTask.dueDate
+      });
+      alert('Please fill in all required fields (Title, Subject, and Due Date).');
+      return;
+    }
+    
+    try {
+      // Convert date string to Firestore timestamp
+      const dueDate = new Date(newTask.dueDate);
+      
+      const taskData = {
+        title: newTask.title.trim(),
+        subject: newTask.subject,
+        priority: newTask.priority,
+        dueDate: dueDate,
+        description: newTask.description.trim(),
+        userId: currentUser.uid,
+        status: 'pending',
+        createdAt: new Date(),
+        updatedAt: new Date()
       };
-      setTasks([...tasks, task]);
+      
+      console.log('Task data to save:', taskData);
+      console.log('Due date object:', dueDate);
+      console.log('Due date string:', dueDate.toISOString());
+      
+      const docRef = await addDoc(collection(db, 'tasks'), taskData);
+      console.log('Task saved with ID:', docRef.id);
+      
+      const newTaskWithId = { id: docRef.id, ...taskData };
+      setTasks([newTaskWithId, ...tasks]);
       setNewTask({ title: '', subject: '', priority: 'medium', dueDate: '', description: '' });
       setShowAddForm(false);
+      
+      console.log('=== ADD TASK SUCCESS ===');
+      alert('Task added successfully!');
+    } catch (error) {
+      console.error('=== ADD TASK ERROR ===');
+      console.error('Error adding task:', error);
+      console.error('Error code:', error.code);
+      console.error('Error message:', error.message);
+      console.error('Error stack:', error.stack);
+      
+      // Provide more specific error messages
+      if (error.code === 'permission-denied') {
+        alert('Permission denied. Please check your Firebase rules.');
+      } else if (error.code === 'unauthenticated') {
+        alert('You are not authenticated. Please log in again.');
+      } else if (error.code === 'invalid-argument') {
+        alert('Invalid data format. Please check your input.');
+      } else {
+        alert(`Failed to add task: ${error.message}`);
+      }
     }
   };
 
-  const updateTaskStatus = (id, status) => {
-    setTasks(tasks.map(task => task.id === id ? { ...task, status } : task));
+  const updateTaskStatus = async (id, status) => {
+    try {
+      await updateDoc(doc(db, 'tasks', id), { 
+        status, 
+        updatedAt: new Date(),
+        completedAt: status === 'completed' ? new Date() : null
+      });
+      setTasks(tasks.map(task => task.id === id ? { ...task, status, updatedAt: new Date() } : task));
+      
+      // Update user points when task status changes
+      if (currentUser && currentUser.uid) {
+        try {
+                  // Get current user data
+        const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
+        const userData = userDoc.data();
+        
+        // Calculate current points
+        const currentPoints = userData?.points || 0;
+        let pointsToAdd = 0;
+        
+        if (status === 'completed') {
+          pointsToAdd = 50; // 50 points for completing a task
+        } else if (status === 'in-progress') {
+          pointsToAdd = 10; // 10 points for starting a task
+        }
+        
+        if (pointsToAdd > 0) {
+          await updateDoc(doc(db, 'users', currentUser.uid), {
+            points: currentPoints + pointsToAdd
+          });
+        }
+        } catch (error) {
+          console.error('Error updating user points:', error);
+          console.error('Error details:', error.code, error.message);
+        }
+      }
+    } catch (error) {
+      console.error('Error updating task:', error);
+    }
   };
 
-  const deleteTask = (id) => {
-    setTasks(tasks.filter(task => task.id !== id));
+  const deleteTask = async (id) => {
+    try {
+      await deleteDoc(doc(db, 'tasks', id));
+      setTasks(tasks.filter(task => task.id !== id));
+    } catch (error) {
+      console.error('Error deleting task:', error);
+    }
+  };
+
+  const loadTasksManually = async () => {
+    if (!currentUser || !currentUser.uid) return;
+    
+    try {
+      console.log('=== MANUAL TASK LOADING ===');
+      const tasksQuery = query(
+        collection(db, 'tasks'), 
+        where('userId', '==', currentUser.uid)
+      );
+      
+      const snapshot = await getDocs(tasksQuery);
+      console.log('Manual load snapshot:', snapshot.docs.length, 'tasks');
+      
+      const tasksData = snapshot.docs.map(doc => {
+        const data = doc.data();
+        return { id: doc.id, ...data };
+      }).sort((a, b) => b.createdAt?.toDate?.() - a.createdAt?.toDate?.());
+      
+      setTasks(tasksData);
+      setLoading(false);
+      console.log('Manual tasks loaded:', tasksData.length, 'tasks');
+    } catch (error) {
+      console.error('Manual task loading failed:', error);
+      setLoading(false);
+    }
+  };
+
+  const handleAddSubject = async () => {
+    if (newSubject.trim()) {
+      const success = await addSubject(newSubject);
+      if (success) {
+        setNewSubject('');
+        setShowAddSubject(false);
+        // Show success message
+        alert(`Subject "${newSubject.trim()}" added successfully!`);
+      } else {
+        // Show error message to user
+        alert('Failed to add subject. Please try again.');
+      }
+    } else {
+      alert('Please enter a subject name.');
+    }
   };
 
   const getPriorityColor = (priority) => {
@@ -87,6 +299,16 @@ const TaskManager = () => {
     }
   });
 
+  if (loading) {
+    return (
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="flex items-center justify-center h-64">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Header */}
@@ -120,13 +342,54 @@ const TaskManager = () => {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Subject</label>
-              <input
-                type="text"
-                value={newTask.subject}
-                onChange={(e) => setNewTask({ ...newTask, subject: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="Enter subject"
-              />
+              <div className="flex space-x-2">
+                <select
+                  value={newTask.subject}
+                  onChange={(e) => setNewTask({ ...newTask, subject: e.target.value })}
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Choose a subject...</option>
+                  {subjects.map((subject) => (
+                    <option key={subject} value={subject}>
+                      {subject}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => setShowAddSubject(!showAddSubject)}
+                  className="px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md transition-colors"
+                >
+                  +
+                </button>
+              </div>
+              {showAddSubject && (
+                <div className="mt-2 flex space-x-2">
+                  <input
+                    type="text"
+                    value={newSubject}
+                    onChange={(e) => setNewSubject(e.target.value)}
+                    placeholder="Enter new subject name"
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    onKeyDown={(e) => e.key === 'Enter' && handleAddSubject()}
+                  />
+                  <button
+                    onClick={handleAddSubject}
+                    className="px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded-md transition-colors"
+                  >
+                    Add
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowAddSubject(false);
+                      setNewSubject('');
+                    }}
+                    className="px-3 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-md transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Priority</label>
@@ -243,7 +506,7 @@ const TaskManager = () => {
                   <p className="text-gray-700 mb-3">{task.description}</p>
                 )}
                 <div className="flex items-center space-x-4 text-sm text-gray-500">
-                  <span>📅 Due: {task.dueDate}</span>
+                  <span>📅 Due: {task.dueDate instanceof Date ? task.dueDate.toLocaleDateString() : new Date(task.dueDate).toLocaleDateString()}</span>
                   <span>📚 {task.subject}</span>
                 </div>
               </div>
@@ -282,6 +545,17 @@ const TaskManager = () => {
               : `No tasks are currently ${activeFilter}.`
             }
           </p>
+          {listenerFailed && (
+            <div className="mt-4">
+              <p className="text-sm text-red-600 mb-2">Real-time updates failed. Tasks may not be up to date.</p>
+              <button
+                onClick={loadTasksManually}
+                className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition-colors"
+              >
+                Refresh Tasks
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

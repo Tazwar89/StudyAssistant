@@ -5,12 +5,12 @@ import { getFirestore } from 'firebase/firestore';
 // Your Firebase configuration
 // Replace with your actual Firebase config
 const firebaseConfig = {
-  apiKey: "your-api-key",
-  authDomain: "your-project.firebaseapp.com",
-  projectId: "your-project-id",
-  storageBucket: "your-project.appspot.com",
-  messagingSenderId: "your-sender-id",
-  appId: "your-app-id"
+  apiKey: "AIzaSyAqwZxPlAVzALnnui6OVNtAf-eYRngFPhg",
+  authDomain: "hackthe6ix-ab103.firebaseapp.com",
+  projectId: "hackthe6ix-ab103",
+  storageBucket: "hackthe6ix-ab103.firebasestorage.app",
+  messagingSenderId: "95100643084",
+  appId: "1:95100643084:web:3875e478721f017ecdcb29"
 };
 
 // Initialize Firebase

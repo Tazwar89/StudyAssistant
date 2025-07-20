@@ -1,24 +1,27 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useAuth } from '../hooks/useAuth.js';
+import { useSubjects } from '../hooks/useSubjects.js';
+import { doc, updateDoc, getDoc, setDoc, onSnapshot } from 'firebase/firestore';
+import { db } from '../config/firebase.js';
 
 const StudyTimer = () => {
-  // Load timer data from localStorage on component mount
+  const { currentUser } = useAuth();
+  const { subjects } = useSubjects();
   const [timeLeft, setTimeLeft] = useState(25 * 60); // 25 minutes in seconds
   const [isRunning, setIsRunning] = useState(false);
   const [isBreak, setIsBreak] = useState(false);
   const [selectedSubject, setSelectedSubject] = useState('');
-  const [sessions, setSessions] = useState(() => {
-    const savedSessions = localStorage.getItem('studyAssistantSessions');
-    return savedSessions ? parseInt(savedSessions) : 0;
-  });
-  const [totalStudyTime, setTotalStudyTime] = useState(() => {
-    const savedStudyTime = localStorage.getItem('studyAssistantStudyTime');
-    return savedStudyTime ? parseInt(savedStudyTime) : 0;
-  });
-  const [subjectStudyTime, setSubjectStudyTime] = useState(() => {
-    const savedSubjectTime = localStorage.getItem('studyAssistantSubjectTime');
-    return savedSubjectTime ? JSON.parse(savedSubjectTime) : {};
-  });
+  const [sessions, setSessions] = useState(0);
+  const [totalStudyTime, setTotalStudyTime] = useState(0);
+  const [subjectStudyTime, setSubjectStudyTime] = useState({});
   const [timerMode, setTimerMode] = useState('pomodoro'); // pomodoro, short-break, long-break
+  const [loading, setLoading] = useState(true);
+  const selectedSubjectRef = useRef(selectedSubject);
+
+  // Update ref when selectedSubject changes
+  useEffect(() => {
+    selectedSubjectRef.current = selectedSubject;
+  }, [selectedSubject]);
 
   const timerSettings = useMemo(() => ({
     pomodoro: 25 * 60,
@@ -26,57 +29,203 @@ const StudyTimer = () => {
     'long-break': 15 * 60
   }), []);
 
-  // Get available subjects from tasks
-  const getAvailableSubjects = () => {
-    const savedTasks = localStorage.getItem('studyAssistantTasks');
-    if (!savedTasks) return ['Mathematics', 'Physics', 'English', 'Computer Science'];
-    
-    const tasks = JSON.parse(savedTasks);
-    const subjects = [...new Set(tasks.map(task => task.subject))];
-    return subjects.length > 0 ? subjects : ['Mathematics', 'Physics', 'English', 'Computer Science'];
-  };
-
-  // Clean up subject study time for subjects that no longer exist
-  const cleanupSubjectStudyTime = useCallback(() => {
-    const availableSubjects = getAvailableSubjects();
-    const cleanedSubjectTime = {};
-    
-    Object.entries(subjectStudyTime).forEach(([subject, seconds]) => {
-      if (availableSubjects.includes(subject)) {
-        cleanedSubjectTime[subject] = seconds;
-      }
-    });
-    
-    // Update state if changes were made
-    if (Object.keys(cleanedSubjectTime).length !== Object.keys(subjectStudyTime).length) {
-      setSubjectStudyTime(cleanedSubjectTime);
+  // Load user data from Firestore with real-time listener
+  useEffect(() => {
+    if (!currentUser || !currentUser.uid) {
+      console.log('No current user, skipping data load');
+      setLoading(false);
+      return;
     }
+
+    const userDocRef = doc(db, 'users', currentUser.uid);
     
-    // Clear selected subject if it's no longer available
-    if (selectedSubject && !availableSubjects.includes(selectedSubject)) {
+    // Set up real-time listener
+    const unsubscribe = onSnapshot(userDocRef, (doc) => {
+      if (doc.exists()) {
+        const userData = doc.data();
+        const sessionsData = userData.sessions || 0;
+        const studyTimeData = userData.studyTime || 0;
+        const subjectStudyTimeData = userData.subjectStudyTime || {};
+        
+        // Only update state if timer is not running to prevent conflicts
+        if (!isRunning) {
+          setSessions(sessionsData);
+          setTotalStudyTime(studyTimeData);
+          setSubjectStudyTime(subjectStudyTimeData);
+        }
+        
+        setLoading(false);
+      } else {
+        // Create user document if it doesn't exist
+        const createDefaultUser = async () => {
+          try {
+            const defaultUserData = {
+              displayName: currentUser.displayName || currentUser.email,
+              email: currentUser.email,
+              createdAt: new Date(),
+              studyTime: 0,
+              points: 0,
+              streak: 0,
+              longestStreak: 0,
+              level: 1,
+              sessions: 0,
+              subjectStudyTime: {},
+              streakData: {
+                currentStreak: 0,
+                lastStudyDate: null,
+                longestStreak: 0
+              },
+              customSubjects: [
+                'Mathematics', 'Physics', 'English', 'Computer Science', 
+                'Chemistry', 'Biology', 'History', 'Literature'
+              ]
+            };
+            
+            await setDoc(userDocRef, defaultUserData);
+            
+            setSessions(0);
+            setTotalStudyTime(0);
+            setSubjectStudyTime({});
+            setLoading(false);
+          } catch (error) {
+            console.error('Error creating default user:', error);
+            setLoading(false);
+          }
+        };
+        
+        createDefaultUser();
+      }
+    }, (error) => {
+      console.error('Error loading user data:', error);
+      console.error('Error details:', error.code, error.message);
+      console.error('Error stack:', error.stack);
+      setLoading(false);
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [currentUser, isRunning]);
+
+  // Simple cleanup: clear selected subject if it's no longer available
+  useEffect(() => {
+    if (selectedSubject && !subjects.includes(selectedSubject)) {
       setSelectedSubject('');
     }
-  }, [subjectStudyTime, selectedSubject]);
+  }, [selectedSubject, subjects]);
 
-  // Clean up subject data when component mounts or tasks change
+  // Save data when component unmounts
   useEffect(() => {
-    cleanupSubjectStudyTime();
-  }, [cleanupSubjectStudyTime]);
+    return () => {
+      if (currentUser && currentUser.uid && !loading) {
+        const saveOnUnmount = async () => {
+          try {
+                    // Get current user data to preserve existing points
+        const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
+        const currentUserData = userDoc.exists() ? userDoc.data() : {};
+        const existingPoints = currentUserData.points || 0;
+        
+        // Calculate NEW points based on current activity (don't overwrite existing)
+        const studyHours = Math.floor(totalStudyTime / 3600);
+        const studyPoints = studyHours * 10; // 10 points per hour
+        const sessionPoints = sessions * 25; // 25 points per session
+        const newPoints = studyPoints + sessionPoints;
+        
+        // Only update points if they've increased (to prevent overwriting)
+        const finalPoints = Math.max(existingPoints, newPoints);
 
-  // Save sessions and study time to localStorage whenever they change
+        await updateDoc(doc(db, 'users', currentUser.uid), {
+          sessions: sessions,
+          studyTime: totalStudyTime,
+          subjectStudyTime: subjectStudyTime,
+          points: finalPoints
+        });
+
+          } catch (error) {
+            console.error('Error saving data on unmount:', error);
+            console.error('Error details:', error.code, error.message);
+          }
+        };
+        saveOnUnmount();
+      }
+    };
+  }, [currentUser, loading, sessions, totalStudyTime, subjectStudyTime]);
+
+  // Save data to Firestore when timer stops or periodically during operation
   useEffect(() => {
-    localStorage.setItem('studyAssistantSessions', sessions.toString());
-  }, [sessions]);
+    if (!currentUser || !currentUser.uid || loading) return;
 
+    const saveUserData = async () => {
+      try {
+        // Get current user data to preserve existing points
+        const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
+        const currentUserData = userDoc.exists() ? userDoc.data() : {};
+        const existingPoints = currentUserData.points || 0;
+        
+        // Calculate NEW points based on current activity (don't overwrite existing)
+        const studyHours = Math.floor(totalStudyTime / 3600);
+        const studyPoints = studyHours * 10; // 10 points per hour
+        const sessionPoints = sessions * 25; // 25 points per session
+        const newPoints = studyPoints + sessionPoints;
+        
+        // Only update points if they've increased (to prevent overwriting)
+        const finalPoints = Math.max(existingPoints, newPoints);
+
+        await updateDoc(doc(db, 'users', currentUser.uid), {
+          sessions: sessions,
+          studyTime: totalStudyTime,
+          subjectStudyTime: subjectStudyTime,
+          points: finalPoints
+        });
+      } catch (error) {
+        console.error('Error saving user data:', error);
+        console.error('Error details:', error.code, error.message);
+      }
+    };
+
+    // Save when timer stops
+    if (!isRunning) {
+      saveUserData();
+    }
+  }, [isRunning, currentUser, loading, sessions, totalStudyTime, subjectStudyTime]);
+
+  // Periodic save during timer operation (every 60 seconds)
   useEffect(() => {
-    localStorage.setItem('studyAssistantStudyTime', totalStudyTime.toString());
-  }, [totalStudyTime]);
+    if (!currentUser || !currentUser.uid || loading || !isRunning || timerMode !== 'pomodoro') return;
 
-  useEffect(() => {
-    localStorage.setItem('studyAssistantSubjectTime', JSON.stringify(subjectStudyTime));
-  }, [subjectStudyTime]);
+    const saveInterval = setInterval(async () => {
+      try {
+        // Get current user data to preserve existing points
+        const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
+        const currentUserData = userDoc.exists() ? userDoc.data() : {};
+        const existingPoints = currentUserData.points || 0;
+        
+        // Calculate NEW points based on current activity (don't overwrite existing)
+        const studyHours = Math.floor(totalStudyTime / 3600);
+        const studyPoints = studyHours * 10;
+        const sessionPoints = sessions * 25;
+        const newPoints = studyPoints + sessionPoints;
+        
+        // Only update points if they've increased (to prevent overwriting)
+        const finalPoints = Math.max(existingPoints, newPoints);
 
-  // Timer logic
+        await updateDoc(doc(db, 'users', currentUser.uid), {
+          sessions: sessions,
+          studyTime: totalStudyTime,
+          subjectStudyTime: subjectStudyTime,
+          points: finalPoints
+        });
+      } catch (error) {
+        console.error('Error during periodic save:', error);
+      }
+    }, 60000); // Save every 60 seconds instead of 30
+
+    return () => {
+      clearInterval(saveInterval);
+    };
+  }, [currentUser, loading, isRunning, timerMode, sessions, totalStudyTime, subjectStudyTime]);
+
+  // Timer logic with minimal flickering
   useEffect(() => {
     let interval = null;
     
@@ -87,14 +236,20 @@ const StudyTimer = () => {
           
           // Add to study time if in pomodoro mode
           if (timerMode === 'pomodoro') {
-            setTotalStudyTime(prevStudyTime => prevStudyTime + 1);
+            setTotalStudyTime(prevStudyTime => {
+              const newStudyTime = prevStudyTime + 1;
+              return newStudyTime;
+            });
             
             // Add to subject study time if subject is selected
-            if (selectedSubject) {
-              setSubjectStudyTime(prev => ({
-                ...prev,
-                [selectedSubject]: (prev[selectedSubject] || 0) + 1
-              }));
+            if (selectedSubjectRef.current) {
+              setSubjectStudyTime(prev => {
+                const newSubjectTime = {
+                  ...prev,
+                  [selectedSubjectRef.current]: (prev[selectedSubjectRef.current] || 0) + 1
+                };
+                return newSubjectTime;
+              });
             }
           }
           
@@ -104,16 +259,19 @@ const StudyTimer = () => {
     } else if (timeLeft === 0) {
       setIsRunning(false);
       if (timerMode === 'pomodoro') {
-        setSessions(prev => prev + 1);
-        // Auto-switch to break after 4 sessions
-        if ((sessions + 1) % 4 === 0) {
-          setTimerMode('long-break');
-          setTimeLeft(timerSettings['long-break']);
-        } else {
-          setTimerMode('short-break');
-          setTimeLeft(timerSettings['short-break']);
-        }
-        setIsBreak(true);
+        setSessions(prev => {
+          const newSessions = prev + 1;
+          // Auto-switch to break after 4 sessions
+          if (newSessions % 4 === 0) {
+            setTimerMode('long-break');
+            setTimeLeft(timerSettings['long-break']);
+          } else {
+            setTimerMode('short-break');
+            setTimeLeft(timerSettings['short-break']);
+          }
+          setIsBreak(true);
+          return newSessions;
+        });
       } else {
         // Break finished, switch back to pomodoro
         setTimerMode('pomodoro');
@@ -131,7 +289,7 @@ const StudyTimer = () => {
         clearInterval(interval);
       }
     };
-  }, [isRunning, timeLeft, timerMode, sessions, isBreak, timerSettings, selectedSubject]);
+  }, [isRunning, timeLeft, timerMode, sessions, isBreak, timerSettings]);
 
   const startTimer = useCallback(() => {
     if (timerMode === 'pomodoro' && !selectedSubject) {
@@ -172,7 +330,17 @@ const StudyTimer = () => {
     return `${hours}h ${mins}m`;
   };
 
-  const availableSubjects = getAvailableSubjects();
+  const availableSubjects = subjects;
+
+  if (loading) {
+    return (
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="flex items-center justify-center h-64">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -326,7 +494,7 @@ const StudyTimer = () => {
               .map(([subject, seconds]) => {
                 const hours = Math.floor(seconds / 3600);
                 const minutes = Math.floor((seconds % 3600) / 60);
-                const percentage = totalStudyTime > 0 ? (seconds / totalStudyTime) * 100 : 0;
+                const percentage = totalStudyTime > 0 ? Math.round((seconds / totalStudyTime) * 100) : 0;
                 
                 return (
                   <div key={subject} className="flex items-center space-x-3">
@@ -335,7 +503,7 @@ const StudyTimer = () => {
                     </div>
                     <div className="flex-1 bg-gray-200 rounded-full h-3">
                       <div 
-                        className="bg-gradient-to-r from-blue-500 to-purple-600 h-3 rounded-full transition-all duration-500"
+                        className="bg-gradient-to-r from-blue-500 to-purple-600 h-3 rounded-full"
                         style={{ width: `${percentage}%` }}
                       ></div>
                     </div>
@@ -349,10 +517,7 @@ const StudyTimer = () => {
         </div>
       )}
 
-      {/* Debug Info */}
-      <div className="mt-4 text-center text-sm text-gray-500">
-        Debug: Timer running: {isRunning ? 'Yes' : 'No'} | Mode: {timerMode} | Subject: {selectedSubject || 'None'} | Study time: {totalStudyTime}s
-      </div>
+      
 
       {/* Tips */}
       <div className="mt-8 bg-blue-50 rounded-lg p-6">

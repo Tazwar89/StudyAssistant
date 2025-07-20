@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { sendMessageToGemini, initializeChat, isApiKeyConfigured } from '../services/geminiService';
 
 const Chatbot = () => {
   const [messages, setMessages] = useState([
@@ -12,6 +13,9 @@ const Chatbot = () => {
   const [inputMessage, setInputMessage] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
+  const [chatInstance, setChatInstance] = useState(null);
+  
+
   const messagesEndRef = useRef(null);
   const expandedMessagesEndRef = useRef(null);
 
@@ -32,6 +36,23 @@ const Chatbot = () => {
       scrollExpandedToBottom();
     }
   }, [messages, isExpanded]);
+
+  // Initialize Gemini chat when component mounts
+  useEffect(() => {
+    const initChat = async () => {
+      if (isApiKeyConfigured()) {
+        try {
+          const chat = await initializeChat();
+          setChatInstance(chat);
+        } catch (error) {
+          console.error('Failed to initialize Gemini chat:', error);
+          // Don't set chatInstance to null, let sendMessageToGemini handle it
+        }
+      }
+    };
+
+    initChat();
+  }, []);
 
   const quickReplies = [
     "How can I improve my focus?",
@@ -67,17 +88,21 @@ const Chatbot = () => {
     setInputMessage('');
     setIsTyping(true);
 
-    // Simulate bot response
-    setTimeout(() => {
-      const lowerText = text.toLowerCase();
-      let response = "I'm here to help with your studies! Try asking me about study tips, creating schedules, improving focus, or memorization techniques.";
-
-      // Check for matching responses
-      for (const [key, value] of Object.entries(botResponses)) {
-        if (lowerText.includes(key)) {
-          response = value;
-          break;
+    try {
+      let response;
+      
+      // Try to use Gemini API if available
+      if (isApiKeyConfigured()) {
+        const result = await sendMessageToGemini(text, chatInstance);
+        
+        if (result.success) {
+          response = result.response;
+          setChatInstance(result.chat); // Update chat instance
+        } else {
+          response = getFallbackResponse(text);
         }
+      } else {
+        response = getFallbackResponse(text);
       }
 
       const botMessage = {
@@ -88,8 +113,36 @@ const Chatbot = () => {
       };
 
       setMessages(prev => [...prev, botMessage]);
+    } catch (error) {
+      console.error('Error sending message:', error);
+      
+      const errorMessage = {
+        id: Date.now() + 1,
+        text: "I'm having trouble connecting right now. Please try again or use the quick reply buttons for instant help!",
+        sender: 'bot',
+        timestamp: new Date()
+      };
+
+      setMessages(prev => [...prev, errorMessage]);
+    } finally {
       setIsTyping(false);
-    }, 1000 + Math.random() * 2000); // Random delay between 1-3 seconds
+    }
+  };
+
+  // Fallback response function
+  const getFallbackResponse = (text) => {
+    const lowerText = text.toLowerCase();
+    let response = "I'm here to help with your studies! Try asking me about study tips, creating schedules, improving focus, or memorization techniques.";
+
+    // Check for matching responses
+    for (const [key, value] of Object.entries(botResponses)) {
+      if (lowerText.includes(key)) {
+        response = value;
+        break;
+      }
+    }
+
+    return response;
   };
 
   const handleSubmit = (e) => {
@@ -165,7 +218,6 @@ const Chatbot = () => {
         {/* Chat Header with Expand Button */}
         <div className="border-b border-gray-200 p-4 flex justify-between items-center">
           <div className="flex items-center space-x-2">
-            <div className="w-3 h-3 bg-green-500 rounded-full"></div>
             <span className="font-medium text-gray-900">Study Assistant</span>
             <span className="text-sm text-gray-500">• {messages.length} messages</span>
           </div>
@@ -315,24 +367,9 @@ const Chatbot = () => {
         </div>
       )}
 
-      {/* Features */}
-      <div className="mt-8 grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-white rounded-lg shadow-md p-6 text-center">
-          <div className="text-3xl mb-3">🎯</div>
-          <h3 className="text-lg font-semibold text-gray-900 mb-2">Study Tips</h3>
-          <p className="text-gray-600">Get personalized advice for effective studying</p>
-        </div>
-        <div className="bg-white rounded-lg shadow-md p-6 text-center">
-          <div className="text-3xl mb-3">📚</div>
-          <h3 className="text-lg font-semibold text-gray-900 mb-2">Subject Help</h3>
-          <p className="text-gray-600">Ask questions about any subject or topic</p>
-        </div>
-        <div className="bg-white rounded-lg shadow-md p-6 text-center">
-          <div className="text-3xl mb-3">💡</div>
-          <h3 className="text-lg font-semibold text-gray-900 mb-2">Motivation</h3>
-          <p className="text-gray-600">Stay motivated and overcome study challenges</p>
-        </div>
-      </div>
+
+
+
     </div>
   );
 };
