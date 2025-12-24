@@ -51,7 +51,7 @@ export function useSubjects() {
       return false;
     }
 
-    if (subjects.includes(trimmedSubject)) {
+    if (subjects.some(s => s.toLowerCase() === trimmedSubject.toLowerCase())) {
       console.error('Subject already exists:', trimmedSubject);
       return false;
     }

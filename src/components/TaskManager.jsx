@@ -49,7 +49,7 @@ async function checkAndAwardTaskAchievements(userId, tasks) {
   if (historyTasks >= 10) addAchievement(14);
   // Task Streak: Complete at least one task every day for 14 days
   const completedDates = tasks.filter(t => t.status === 'completed' && t.completedAt).map(t => {
-    const d = t.completedAt instanceof Date ? t.completedAt : new Date(t.completedAt);
+    const d = t.completedAt?.toDate ? t.completedAt.toDate() : new Date(t.completedAt);
     return d.toISOString().split('T')[0];
   });
   const uniqueDays = Array.from(new Set(completedDates));
