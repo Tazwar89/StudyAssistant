@@ -120,35 +120,22 @@ const StudyTimer = () => {
       if (currentUser && currentUser.uid && !loading) {
         const saveOnUnmount = async () => {
           try {
-                    // Get current user data to preserve existing points
-        const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
-        const currentUserData = userDoc.exists() ? userDoc.data() : {};
-        const existingPoints = currentUserData.points || 0;
-        
-        // Calculate NEW points based on current activity (don't overwrite existing)
-        const studyHours = Math.floor(totalStudyTime / 3600);
-        const studyPoints = studyHours * 10; // 10 points per hour
-        const sessionPoints = sessions * 25; // 25 points per session
-        const newPoints = studyPoints + sessionPoints;
-        
-        // Only update points if they've increased (to prevent overwriting)
-        const finalPoints = Math.max(existingPoints, newPoints);
-
-        await updateDoc(doc(db, 'users', currentUser.uid), {
-          sessions: sessions,
-          studyTime: totalStudyTime,
-          subjectStudyTime: subjectStudyTime,
-          points: finalPoints
-        });
-        // Check and award achievements
-        const userDoc1 = await getDoc(doc(db, 'users', currentUser.uid));
-        if (userDoc1.exists()) {
-          await checkAndAwardAchievements(currentUser.uid, userDoc1.data());
-        }
+            // We ONLY save time and sessions here. Points are now handled in the timer logic.
+            await updateDoc(doc(db, 'users', currentUser.uid), {
+              sessions: sessions,
+              studyTime: totalStudyTime,
+              subjectStudyTime: subjectStudyTime
+              // removed points update to prevent overwriting
+            });
+            
+            // Check achievements
+            const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
+            if (userDoc.exists()) {
+              await checkAndAwardAchievements(currentUser.uid, userDoc.data());
+            }
 
           } catch (error) {
             console.error('Error saving data on unmount:', error);
-            console.error('Error details:', error.code, error.message);
           }
         };
         saveOnUnmount();
@@ -156,40 +143,27 @@ const StudyTimer = () => {
     };
   }, [currentUser, loading, sessions, totalStudyTime, subjectStudyTime]);
 
-  // Save data to Firestore when timer stops or periodically during operation
+  // Save data to Firestore when timer stops
   useEffect(() => {
     if (!currentUser || !currentUser.uid || loading) return;
 
     const saveUserData = async () => {
       try {
-        // Get current user data to preserve existing points
-        const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
-        const currentUserData = userDoc.exists() ? userDoc.data() : {};
-        const existingPoints = currentUserData.points || 0;
-        
-        // Calculate NEW points based on current activity (don't overwrite existing)
-        const studyHours = Math.floor(totalStudyTime / 3600);
-        const studyPoints = studyHours * 10; // 10 points per hour
-        const sessionPoints = sessions * 25; // 25 points per session
-        const newPoints = studyPoints + sessionPoints;
-        
-        // Only update points if they've increased (to prevent overwriting)
-        const finalPoints = Math.max(existingPoints, newPoints);
-
+        // We ONLY save time and sessions here.
         await updateDoc(doc(db, 'users', currentUser.uid), {
           sessions: sessions,
           studyTime: totalStudyTime,
-          subjectStudyTime: subjectStudyTime,
-          points: finalPoints
+          subjectStudyTime: subjectStudyTime
+          // removed points update to prevent overwriting
         });
-        // Check and award achievements
-        const userDoc2 = await getDoc(doc(db, 'users', currentUser.uid));
-        if (userDoc2.exists()) {
-          await checkAndAwardAchievements(currentUser.uid, userDoc2.data());
+
+        // Check achievements
+        const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
+        if (userDoc.exists()) {
+          await checkAndAwardAchievements(currentUser.uid, userDoc.data());
         }
       } catch (error) {
         console.error('Error saving user data:', error);
-        console.error('Error details:', error.code, error.message);
       }
     };
 
@@ -205,42 +179,30 @@ const StudyTimer = () => {
 
     const saveInterval = setInterval(async () => {
       try {
-        // Get current user data to preserve existing points
-        const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
-        const currentUserData = userDoc.exists() ? userDoc.data() : {};
-        const existingPoints = currentUserData.points || 0;
-        
-        // Calculate NEW points based on current activity (don't overwrite existing)
-        const studyHours = Math.floor(totalStudyTime / 3600);
-        const studyPoints = studyHours * 10;
-        const sessionPoints = sessions * 25;
-        const newPoints = studyPoints + sessionPoints;
-        
-        // Only update points if they've increased (to prevent overwriting)
-        const finalPoints = Math.max(existingPoints, newPoints);
-
+        // We ONLY save time and sessions here.
         await updateDoc(doc(db, 'users', currentUser.uid), {
           sessions: sessions,
           studyTime: totalStudyTime,
-          subjectStudyTime: subjectStudyTime,
-          points: finalPoints
+          subjectStudyTime: subjectStudyTime
+          // removed points update to prevent overwriting
         });
-        // Check and award achievements
-        const userDoc3 = await getDoc(doc(db, 'users', currentUser.uid));
-        if (userDoc3.exists()) {
-          await checkAndAwardAchievements(currentUser.uid, userDoc3.data());
+
+        // Check achievements
+        const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
+        if (userDoc.exists()) {
+          await checkAndAwardAchievements(currentUser.uid, userDoc.data());
         }
       } catch (error) {
         console.error('Error during periodic save:', error);
       }
-    }, 60000); // Save every 60 seconds instead of 30
+    }, 60000);
 
     return () => {
       clearInterval(saveInterval);
     };
   }, [currentUser, loading, isRunning, timerMode, sessions, totalStudyTime, subjectStudyTime]);
 
-  // Timer logic with minimal flickering
+  // Timer logic
   useEffect(() => {
     let interval = null;
     
@@ -299,6 +261,26 @@ const StudyTimer = () => {
           setIsBreak(true);
           return newSessions;
         });
+
+        // Award points incrementally for completing a session
+        const awardSessionPoints = async () => {
+          if (currentUser?.uid) {
+            try {
+              const userRef = doc(db, 'users', currentUser.uid);
+              const userDoc = await getDoc(userRef);
+              if (userDoc.exists()) {
+                const currentPoints = userDoc.data().points || 0;
+                await updateDoc(userRef, {
+                  points: currentPoints + 25 // Add 25 points for the session
+                });
+              }
+            } catch (err) {
+              console.error("Error awarding points:", err);
+            }
+          }
+        };
+        awardSessionPoints();
+
       } else {
         // Break finished, switch back to pomodoro
         setTimerMode('pomodoro');
@@ -544,8 +526,6 @@ const StudyTimer = () => {
         </div>
       )}
 
-      
-
       {/* Tips */}
       <div className="mt-8 bg-blue-50 rounded-lg p-6">
         <h3 className="text-lg font-semibold text-blue-900 mb-3">💡 Study Tips</h3>
@@ -639,4 +619,4 @@ async function addStudyHistoryEntry(userId, date, hours, subjects) {
   await updateDoc(userRef, { studyHistory: history });
 }
 
-export default StudyTimer; 
+export default StudyTimer;
