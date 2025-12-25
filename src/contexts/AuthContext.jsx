@@ -1,4 +1,4 @@
-import { createContext, useState, useEffect, useContext } from 'react';
+import { useState, useEffect } from 'react';
 import { 
   createUserWithEmailAndPassword, 
   signInWithEmailAndPassword, 
@@ -9,6 +9,8 @@ import {
 } from 'firebase/auth';
 import { doc, setDoc, getDoc } from 'firebase/firestore';
 import { auth, db } from '../config/firebase.js';
+import { createContext } from 'react';
+
 export const AuthContext = createContext();
 
 export function AuthProvider({ children }) {
@@ -22,38 +24,45 @@ export function AuthProvider({ children }) {
     // Update user profile with display name
     await updateProfile(result.user, { displayName });
     
-          // Create user document in Firestore
-      await setDoc(doc(db, 'users', result.user.uid), {
-        displayName,
-        email,
-        createdAt: new Date(),
-        studyTime: 0,
-        points: 0,
-        streak: 0,
-        longestStreak: 0,
-        level: 1,
-        sessions: 0,
-        streakData: {
-          currentStreak: 0,
-          lastStudyDate: null,
-          longestStreak: 0
-        },
-        customSubjects: [
-          'Mathematics', 'Physics', 'English', 'Computer Science', 
-          'Chemistry', 'Biology', 'History', 'Literature'
-        ]
-      });
+    // Create user document in Firestore - This is the SINGLE SOURCE of truth for creation
+    await setDoc(doc(db, 'users', result.user.uid), {
+      displayName,
+      email,
+      createdAt: new Date(),
+      studyTime: 0,
+      points: 0,
+      streak: 0,
+      longestStreak: 0,
+      level: 1,
+      sessions: 0,
+      streakData: {
+        currentStreak: 0,
+        lastStudyDate: null,
+        longestStreak: 0
+      },
+      customSubjects: [
+        'Mathematics', 'Physics', 'English', 'Computer Science', 
+        'Chemistry', 'Biology', 'History', 'Literature'
+      ]
+    });
+    
+    // Manually update state to reflect the new data immediately
+    setCurrentUser({
+      uid: result.user.uid,
+      email: email,
+      displayName: displayName,
+      // ... include initial stats if needed for immediate UI feedback
+    });
     
     return result;
   }
 
   async function login(email, password) {
-    const result = await signInWithEmailAndPassword(auth, email, password);
-    return result;
+    return signInWithEmailAndPassword(auth, email, password);
   }
 
   async function logout() {
-    await signOut(auth);
+    return signOut(auth);
   }
 
   async function resetPassword(email) {
@@ -65,11 +74,9 @@ export function AuthProvider({ children }) {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setFirebaseUser(user);
       if (user) {
-        // Get additional user data from Firestore
         try {
           const userDoc = await getDoc(doc(db, 'users', user.uid));
           if (userDoc.exists()) {
-            // Keep the Firebase Auth user object separate from Firestore data
             setCurrentUser({
               uid: user.uid,
               email: user.email,
@@ -77,34 +84,13 @@ export function AuthProvider({ children }) {
               ...userDoc.data()
             });
           } else {
-            // Create user document if it doesn't exist
-            const userData = {
-              displayName: user.displayName || user.email,
-              email: user.email,
-              createdAt: new Date(),
-              studyTime: 0,
-              points: 0,
-              streak: 0,
-              longestStreak: 0,
-              level: 1,
-              sessions: 0,
-              streakData: {
-                currentStreak: 0,
-                lastStudyDate: null,
-                longestStreak: 0
-              },
-              customSubjects: [
-                'Mathematics', 'Physics', 'English', 'Computer Science', 
-                'Chemistry', 'Biology', 'History', 'Literature'
-              ]
-            };
-            
-            await setDoc(doc(db, 'users', user.uid), userData);
+            // DOC MISSING: Do NOT create it here. 
+            // If it's a signup, the signup function handles it.
+            // If it's a legacy error, we just use basic auth info.
             setCurrentUser({
               uid: user.uid,
               email: user.email,
-              displayName: user.displayName,
-              ...userData
+              displayName: user.displayName
             });
           }
         } catch (error) {
@@ -135,4 +121,4 @@ export function AuthProvider({ children }) {
       {!loading && children}
     </AuthContext.Provider>
   );
-} 
+}
