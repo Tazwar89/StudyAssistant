@@ -8,14 +8,11 @@ import {
   AcademicCapIcon, 
   TrophyIcon, 
   CogIcon,
-  BellIcon,
-  ShieldCheckIcon,
-  ChartBarIcon,
   CalendarIcon,
   ClockIcon,
-  FireIcon,
   StarIcon,
-  CheckCircleIcon
+  CheckCircleIcon,
+  ChartBarIcon
 } from '@heroicons/react/24/outline';
 
 const Profile = () => {
@@ -116,13 +113,6 @@ const Profile = () => {
     fetchHistory();
   }, [currentUser]);
 
-  const handleNotificationChange = (key) => {
-    setNotifications(prev => ({
-      ...prev,
-      [key]: !prev[key]
-    }));
-  };
-
   const getLevelProgress = () => {
     if (!userStats) return 0;
     // Example: Level 8 = 2800, Level 9 = 3000
@@ -151,117 +141,27 @@ const Profile = () => {
     return 10;
   };
 
-  // List of all possible achievements
+  // CORRECTED: List of all possible achievements matching StudyTimer.jsx
   const ALL_ACHIEVEMENTS = [
-    {
-      id: 1,
-      name: 'First Steps',
-      description: 'Complete your first study session',
-      icon: '🎯',
-    },
-    {
-      id: 2,
-      name: 'Week Warrior',
-      description: 'Study for 7 consecutive days',
-      icon: '🔥',
-    },
-    {
-      id: 3,
-      name: 'Task Master',
-      description: 'Complete 50 tasks',
-      icon: '✅',
-    },
-    {
-      id: 4,
-      name: 'Math Whiz',
-      description: 'Complete 20 math-related tasks',
-      icon: '🧮',
-    },
-    {
-      id: 5,
-      name: 'Early Bird',
-      description: 'Study before 8 AM for 5 days',
-      icon: '🌅',
-    },
-    {
-      id: 6,
-      name: 'Century Club',
-      description: 'Study for 100 total hours',
-      icon: '💯',
-    },
-    // New Achievements
-    {
-      id: 8,
-      name: 'Streak Master',
-      description: 'Maintain a 30-day study streak',
-      icon: '🏆',
-    },
-    {
-      id: 9,
-      name: 'Focus Pro',
-      description: 'Complete 10 Pomodoro sessions in one week',
-      icon: '⏳',
-    },
-    {
-      id: 10,
-      name: 'Task Streak',
-      description: 'Complete at least one task every day for 14 days',
-      icon: '📅',
-    },
-    {
-      id: 11,
-      name: 'Science Star',
-      description: 'Complete 10 science-related tasks',
-      icon: '🔬',
-    },
-    {
-      id: 12,
-      name: 'Literature Lover',
-      description: 'Complete 10 literature-related tasks',
-      icon: '📖',
-    },
-    {
-      id: 13,
-      name: 'History Buff',
-      description: 'Complete 10 history-related tasks',
-      icon: '🏺',
-    },
-    {
-      id: 14,
-      name: 'Comeback Kid',
-      description: 'Resume a streak after breaking it for at least 3 days',
-      icon: '🔄',
-    },
-    {
-      id: 15,
-      name: 'Goal Crusher',
-      description: 'Achieve your weekly study goal 4 weeks in a row',
-      icon: '🥇',
-    },
-    {
-      id: 16,
-      name: 'Marathoner',
-      description: 'Study for 4 hours in a single day',
-      icon: '🏃‍♂️',
-    },
-    {
-      id: 17,
-      name: 'Helper',
-      description: 'Help a friend with their studies',
-      icon: '🤝',
-    },
-    {
-      id: 18,
-      name: 'AI Enthusiast',
-      description: 'Use the AI Chatbot 10 times',
-      icon: '🤖',
-    },
-    {
-      id: 19,
-      name: 'Consistency Champ',
-      description: 'Log in and study every day for a month',
-      icon: '📆',
-    },
+    { id: 1, name: 'First Steps', description: 'Complete your first study session', icon: '🎯' },
+    { id: 2, name: 'Week Warrior', description: 'Study for 7 consecutive days', icon: '🔥' },
+    { id: 3, name: 'Task Master', description: 'Complete 50 tasks', icon: '✅' },
+    { id: 4, name: 'Math Whiz', description: 'Complete 20 math-related tasks', icon: '🧮' },
+    { id: 5, name: 'Early Bird', description: 'Study before 8 AM for 5 days', icon: '🌅' },
+    { id: 6, name: 'Century Club', description: 'Study for 100 total hours', icon: '💯' },
+    { id: 8, name: 'Streak Master', description: 'Maintain a 30-day study streak', icon: '🏆' },
+    { id: 9, name: 'Subject Explorer', description: 'Study 5 different subjects', icon: '📚' },
+    { id: 10, name: 'Focus Pro', description: 'Complete 10 Pomodoro sessions in one week', icon: '⏳' },
+    { id: 11, name: 'Task Streak', description: 'Complete at least one task every day for 14 days', icon: '📅' },
+    { id: 12, name: 'Science Star', description: 'Complete 10 science-related tasks', icon: '🔬' },
+    { id: 13, name: 'Literature Lover', description: 'Complete 10 literature-related tasks', icon: '📖' },
+    { id: 14, name: 'History Buff', description: 'Complete 10 history-related tasks', icon: '🏺' },
+    { id: 15, name: 'Comeback Kid', description: 'Resume a streak after breaking it for at least 3 days', icon: '🔄' },
+    { id: 16, name: 'Goal Crusher', description: 'Achieve your weekly study goal 4 weeks in a row', icon: '🥇' },
+    { id: 17, name: 'Marathoner', description: 'Study for 4 hours in a single day', icon: '🏃‍♂️' },
+    { id: 18, name: 'Helper', description: 'Help a friend with their studies', icon: '🤝' },
+    { id: 19, name: 'AI Enthusiast', description: 'Use the AI Chatbot 10 times', icon: '🤖' },
+    { id: 20, name: 'Consistency Champ', description: 'Log in and study every day for a month', icon: '📆' },
   ];
 
   const [resetLoading, setResetLoading] = useState(false);
@@ -830,4 +730,4 @@ const Profile = () => {
   );
 };
 
-export default Profile; 
+export default Profile;
