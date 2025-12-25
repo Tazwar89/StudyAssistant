@@ -580,23 +580,34 @@ async function checkAndAwardAchievements(userId, userData) {
 
   // First Steps: Complete your first study session
   if (sessions >= 1) addAchievement(1);
+  
   // Week Warrior: Study for 7 consecutive days (streak)
   if (streak >= 7) addAchievement(2);
+  
   // Century Club: Study for 100 total hours
   if ((studyTime / 3600) >= 100) addAchievement(6);
+  
   // Streak Master: 30-day streak
   if (streak >= 30) addAchievement(8);
-  // Subject Explorer: Study 5 different subjects
-  if (customSubjects && customSubjects.length >= 5) addAchievement(9);
-  // Focus Pro: 10 Pomodoro sessions in a week (not tracked here, but if sessions >= 10, award)
+  
+  // FIXED: Subject Explorer - Check subjects actually studied, not just available
+  // We count how many subjects have > 0 seconds of study time
+  const subjectsStudiedCount = subjectStudyTime ? Object.keys(subjectStudyTime).length : 0;
+  if (subjectsStudiedCount >= 5) addAchievement(9);
+  
+  // Focus Pro: 10 Pomodoro sessions in a week (simplified to total sessions for now)
   if (sessions >= 10) addAchievement(10);
-  // Marathoner: Study for 4 hours in a single day (not tracked here, but if weeklyProgress >= 4, award)
+  
+  // Marathoner: Study for 4 hours in a single day
   if (weeklyProgress >= 4) addAchievement(17);
-  // Consistency Champ: Study every day for a month (streak >= 30)
+  
+  // Consistency Champ: Study every day for a month
   if (streak >= 30) addAchievement(20);
 
   // Save if new achievements were added
-  await updateDoc(doc(db, 'users', userId), { achievementsList });
+  if (achievementsList.length > (userData.achievementsList || []).length) {
+    await updateDoc(doc(db, 'users', userId), { achievementsList });
+  }
 }
 
 // Helper to add a study history entry
