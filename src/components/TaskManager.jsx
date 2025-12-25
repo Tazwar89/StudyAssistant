@@ -17,59 +17,63 @@ const ALL_ACHIEVEMENTS = [
 // Helper to check and award task-based achievements
 async function checkAndAwardTaskAchievements(userId, tasks) {
   let achievementsList = [];
-  // Fetch current achievementsList
-  const userDoc = await getDoc(doc(db, 'users', userId));
-  if (userDoc.exists()) {
-    achievementsList = userDoc.data().achievementsList || [];
-  }
-  const now = new Date().toISOString().split('T')[0];
-
-  // Helper to add achievement if not already present
-  const addAchievement = (id) => {
-    if (!achievementsList.some(a => a.id === id)) {
-      const ach = ALL_ACHIEVEMENTS.find(a => a.id === id);
-      if (ach) achievementsList = [...achievementsList, { ...ach, earned: true, date: now }];
+  try {
+    const userDoc = await getDoc(doc(db, 'users', userId));
+    if (userDoc.exists()) {
+      achievementsList = userDoc.data().achievementsList || [];
     }
-  };
+    const now = new Date().toISOString().split('T')[0];
 
-  // Task Master: Complete 50 tasks
-  const completedTasks = tasks.filter(t => t.status === 'completed').length;
-  if (completedTasks >= 50) addAchievement(3);
-  // Math Whiz: Complete 20 math-related tasks
-  const mathTasks = tasks.filter(t => t.status === 'completed' && t.subject && t.subject.toLowerCase().includes('math')).length;
-  if (mathTasks >= 20) addAchievement(4);
-  // Science Star: Complete 10 science-related tasks
-  const scienceTasks = tasks.filter(t => t.status === 'completed' && t.subject && t.subject.toLowerCase().includes('science')).length;
-  if (scienceTasks >= 10) addAchievement(12);
-  // Literature Lover: Complete 10 literature-related tasks
-  const literatureTasks = tasks.filter(t => t.status === 'completed' && t.subject && t.subject.toLowerCase().includes('literature')).length;
-  if (literatureTasks >= 10) addAchievement(13);
-  // History Buff: Complete 10 history-related tasks
-  const historyTasks = tasks.filter(t => t.status === 'completed' && t.subject && t.subject.toLowerCase().includes('history')).length;
-  if (historyTasks >= 10) addAchievement(14);
-  // Task Streak: Complete at least one task every day for 14 days
-  const completedDates = tasks.filter(t => t.status === 'completed' && t.completedAt).map(t => {
-    const d = t.completedAt?.toDate ? t.completedAt.toDate() : new Date(t.completedAt);
-    return d.toISOString().split('T')[0];
-  });
-  const uniqueDays = Array.from(new Set(completedDates));
-  // Check for 14 consecutive days
-  uniqueDays.sort();
-  let streak = 1, maxStreak = 1;
-  for (let i = 1; i < uniqueDays.length; i++) {
-    const prev = new Date(uniqueDays[i - 1]);
-    const curr = new Date(uniqueDays[i]);
-    if ((curr - prev) / (1000 * 60 * 60 * 24) === 1) {
-      streak++;
-      maxStreak = Math.max(maxStreak, streak);
-    } else {
-      streak = 1;
+    const addAchievement = (id) => {
+      if (!achievementsList.some(a => a.id === id)) {
+        const ach = ALL_ACHIEVEMENTS.find(a => a.id === id);
+        if (ach) achievementsList = [...achievementsList, { ...ach, earned: true, date: now }];
+      }
+    };
+
+    const completedTasks = tasks.filter(t => t.status === 'completed').length;
+    if (completedTasks >= 50) addAchievement(3);
+
+    const mathTasks = tasks.filter(t => t.status === 'completed' && t.subject && t.subject.toLowerCase().includes('math')).length;
+    if (mathTasks >= 20) addAchievement(4);
+
+    const scienceTasks = tasks.filter(t => t.status === 'completed' && t.subject && t.subject.toLowerCase().includes('science')).length;
+    if (scienceTasks >= 10) addAchievement(12);
+
+    const literatureTasks = tasks.filter(t => t.status === 'completed' && t.subject && t.subject.toLowerCase().includes('literature')).length;
+    if (literatureTasks >= 10) addAchievement(13);
+
+    const historyTasks = tasks.filter(t => t.status === 'completed' && t.subject && t.subject.toLowerCase().includes('history')).length;
+    if (historyTasks >= 10) addAchievement(14);
+
+    const completedDates = tasks.filter(t => t.status === 'completed' && t.completedAt).map(t => {
+      try {
+        const d = t.completedAt.toDate ? t.completedAt.toDate() : new Date(t.completedAt);
+        return d.toISOString().split('T')[0];
+      } catch (e) { return null; }
+    }).filter(Boolean);
+    
+    const uniqueDays = Array.from(new Set(completedDates));
+    uniqueDays.sort();
+    let streak = 1, maxStreak = 1;
+    for (let i = 1; i < uniqueDays.length; i++) {
+      const prev = new Date(uniqueDays[i - 1]);
+      const curr = new Date(uniqueDays[i]);
+      if ((curr - prev) / (1000 * 60 * 60 * 24) === 1) {
+        streak++;
+        maxStreak = Math.max(maxStreak, streak);
+      } else {
+        streak = 1;
+      }
     }
-  }
-  if (maxStreak >= 14) addAchievement(11);
+    if (maxStreak >= 14) addAchievement(11);
 
-  // Save if new achievements were added
-  await updateDoc(doc(db, 'users', userId), { achievementsList });
+    if (achievementsList.length > (userDoc.data().achievementsList || []).length) {
+       await updateDoc(doc(db, 'users', userId), { achievementsList });
+    }
+  } catch (err) {
+    console.error("Error checking achievements:", err);
+  }
 }
 
 const TaskManager = () => {
@@ -85,23 +89,21 @@ const TaskManager = () => {
     subject: '',
     priority: 'medium',
     dueDate: '',
-    description: ''
+    description: '',
+    isReview: false,
+    reviewDate: ''
   });
 
   const [showAddForm, setShowAddForm] = useState(false);
   const [activeFilter, setActiveFilter] = useState('all');
   const [listenerFailed, setListenerFailed] = useState(false);
 
-  // Load tasks from Firestore with real-time listener
+  // Load tasks
   useEffect(() => {
     if (!currentUser || !currentUser.uid) {
-      console.log('No current user, skipping task load');
       setLoading(false);
       return;
     }
-
-    console.log('=== TASK LOADING DEBUG ===');
-    console.log('Current user:', currentUser.uid);
 
     const tasksQuery = query(
       collection(db, 'tasks'), 
@@ -109,89 +111,50 @@ const TaskManager = () => {
       orderBy('createdAt', 'desc')
     );
 
-    console.log('Tasks query created:', tasksQuery);
-
     const unsubscribe = onSnapshot(tasksQuery, (snapshot) => {
-      console.log('Tasks snapshot received:', snapshot.docs.length, 'tasks');
-      const tasksData = snapshot.docs.map(doc => {
-        const data = doc.data();
-        console.log('Task data:', { id: doc.id, ...data });
-        return { id: doc.id, ...data };
-      });
+      const tasksData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setTasks(tasksData);
       setLoading(false);
-      console.log('Tasks state updated:', tasksData.length, 'tasks');
     }, (error) => {
-      console.error('=== TASK LOADING ERROR ===');
       console.error('Error loading tasks:', error);
-      console.error('Error code:', error.code);
-      console.error('Error message:', error.message);
-      console.error('Error stack:', error.stack);
       setListenerFailed(true);
       setLoading(false);
       
-      // Try to load tasks without orderBy if there's an index error
       if (error.code === 'failed-precondition') {
-        console.log('Trying to load tasks without orderBy...');
-        const simpleQuery = query(
-          collection(db, 'tasks'), 
-          where('userId', '==', currentUser.uid)
-        );
-        
+        const simpleQuery = query(collection(db, 'tasks'), where('userId', '==', currentUser.uid));
         const simpleUnsubscribe = onSnapshot(simpleQuery, (simpleSnapshot) => {
-          console.log('Simple query snapshot received:', simpleSnapshot.docs.length, 'tasks');
-          const simpleTasksData = simpleSnapshot.docs.map(doc => {
-            const data = doc.data();
-            return { id: doc.id, ...data };
-          }).sort((a, b) => b.createdAt?.toDate?.() - a.createdAt?.toDate?.());
-          
+          const simpleTasksData = simpleSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+            .sort((a, b) => (b.createdAt?.toDate?.() || 0) - (a.createdAt?.toDate?.() || 0));
           setTasks(simpleTasksData);
           setLoading(false);
-          console.log('Simple tasks state updated:', simpleTasksData.length, 'tasks');
-        }, (simpleError) => {
-          console.error('Simple query also failed:', simpleError);
-          setLoading(false);
-          // Try manual loading as last resort
-          loadTasksManually();
         });
-        
         return () => simpleUnsubscribe();
       } else {
-        // For other errors, try manual loading
         loadTasksManually();
       }
     });
 
-    return () => {
-      console.log('Cleaning up task listener');
-      unsubscribe();
-    };
+    return () => unsubscribe();
   }, [currentUser]);
 
   const addTask = async () => {
-    console.log('=== ADD TASK DEBUG ===');
-    console.log('New task data:', newTask);
-    console.log('Current user:', currentUser);
-    
     if (!currentUser || !currentUser.uid) {
-      console.error('No current user found');
       alert('Please log in to add tasks.');
       return;
     }
     
     if (!newTask.title || !newTask.subject || !newTask.dueDate) {
-      console.error('Missing required fields:', {
-        title: !!newTask.title,
-        subject: !!newTask.subject,
-        dueDate: !!newTask.dueDate
-      });
       alert('Please fill in all required fields (Title, Subject, and Due Date).');
       return;
     }
     
     try {
-      // Convert date string to Firestore timestamp
       const dueDate = new Date(newTask.dueDate);
+      // Process review date if set
+      let reviewDate = null;
+      if (newTask.isReview && newTask.reviewDate) {
+        reviewDate = new Date(newTask.reviewDate);
+      }
       
       const taskData = {
         title: newTask.title.trim(),
@@ -201,55 +164,32 @@ const TaskManager = () => {
         description: newTask.description.trim(),
         userId: currentUser.uid,
         status: 'pending',
+        isReview: newTask.isReview,
+        reviewDate: reviewDate,
         createdAt: new Date(),
         updatedAt: new Date()
       };
       
-      console.log('Task data to save:', taskData);
-      console.log('Due date object:', dueDate);
-      console.log('Due date string:', dueDate.toISOString());
-      
       const docRef = await addDoc(collection(db, 'tasks'), taskData);
-      console.log('Task saved with ID:', docRef.id);
       
-      const newTaskWithId = { id: docRef.id, ...taskData };
-      setTasks([newTaskWithId, ...tasks]);
-      setNewTask({ title: '', subject: '', priority: 'medium', dueDate: '', description: '' });
+      setNewTask({ 
+        title: '', subject: '', priority: 'medium', dueDate: '', 
+        description: '', isReview: false, reviewDate: '' 
+      });
       setShowAddForm(false);
       
-      console.log('=== ADD TASK SUCCESS ===');
-      alert('Task added successfully!');
-
-      // Update user's totalTasks count
+      // Update stats
       if (currentUser && currentUser.uid) {
-        try {
-          const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
-          const userData = userDoc.data();
-          const totalTasks = userData?.totalTasks || 0;
-          await updateDoc(doc(db, 'users', currentUser.uid), {
-            totalTasks: totalTasks + 1
-          });
-        } catch (error) {
-          console.error('Error updating user totalTasks:', error);
-        }
+        const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
+        const userData = userDoc.data();
+        await updateDoc(doc(db, 'users', currentUser.uid), {
+          totalTasks: (userData?.totalTasks || 0) + 1
+        });
       }
+      alert('Task added successfully!');
     } catch (error) {
-      console.error('=== ADD TASK ERROR ===');
       console.error('Error adding task:', error);
-      console.error('Error code:', error.code);
-      console.error('Error message:', error.message);
-      console.error('Error stack:', error.stack);
-      
-      // Provide more specific error messages
-      if (error.code === 'permission-denied') {
-        alert('Permission denied. Please check your Firebase rules.');
-      } else if (error.code === 'unauthenticated') {
-        alert('You are not authenticated. Please log in again.');
-      } else if (error.code === 'invalid-argument') {
-        alert('Invalid data format. Please check your input.');
-      } else {
-        alert(`Failed to add task: ${error.message}`);
-      }
+      alert(`Failed to add task: ${error.message}`);
     }
   };
 
@@ -260,39 +200,34 @@ const TaskManager = () => {
         updatedAt: new Date(),
         completedAt: status === 'completed' ? new Date() : null
       });
-      setTasks(tasks.map(task => task.id === id ? { ...task, status, updatedAt: new Date() } : task));
       
-      // Update user points and completedTasks when task status changes
+      // Update points if completing
       if (currentUser && currentUser.uid) {
-        try {
-          const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
-          const userData = userDoc.data();
-          const currentPoints = userData?.points || 0;
-          let pointsToAdd = 0;
-          let completedTasks = userData?.completedTasks || 0;
-          // Find the task's previous status
-          const task = tasks.find(t => t.id === id);
-          const wasCompleted = task && task.status === 'completed';
-          if (status === 'completed' && !wasCompleted) {
-            completedTasks += 1;
-          } else if (wasCompleted && status !== 'completed') {
-            completedTasks = Math.max(0, completedTasks - 1);
-          }
-          if (status === 'completed') {
-            pointsToAdd = 50; // 50 points for completing a task
-          } else if (status === 'in-progress') {
-            pointsToAdd = 10; // 10 points for starting a task
-          }
-          const updateObj = {
-            points: currentPoints + pointsToAdd,
-            completedTasks: completedTasks
-          };
-          await updateDoc(doc(db, 'users', currentUser.uid), updateObj);
-        } catch (error) {
-          console.error('Error updating user points/completedTasks:', error);
+        const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
+        const userData = userDoc.data();
+        const currentPoints = userData?.points || 0;
+        let pointsToAdd = 0;
+        let completedTasks = userData?.completedTasks || 0;
+        
+        const task = tasks.find(t => t.id === id);
+        const wasCompleted = task && task.status === 'completed';
+        
+        if (status === 'completed' && !wasCompleted) {
+          completedTasks += 1;
+          pointsToAdd = 50;
+        } else if (wasCompleted && status !== 'completed') {
+          completedTasks = Math.max(0, completedTasks - 1);
+        } else if (status === 'in-progress' && !wasCompleted) {
+          pointsToAdd = 10;
+        }
+
+        if (pointsToAdd > 0 || completedTasks !== (userData?.completedTasks || 0)) {
+           await updateDoc(doc(db, 'users', currentUser.uid), {
+             points: currentPoints + pointsToAdd,
+             completedTasks: completedTasks
+           });
         }
       }
-      // Check and award task-based achievements
       await checkAndAwardTaskAchievements(currentUser.uid, tasks.map(task => task.id === id ? { ...task, status } : task));
     } catch (error) {
       console.error('Error updating task:', error);
@@ -300,64 +235,31 @@ const TaskManager = () => {
   };
 
   const deleteTask = async (id) => {
+    if (!window.confirm('Are you sure you want to delete this task?')) return;
     try {
-      // Fetch the task document before deleting
-      const taskDoc = await getDoc(doc(db, 'tasks', id));
-      if (!taskDoc.exists()) {
-        alert('Task not found in Firestore.');
-        return;
-      }
-      const taskData = taskDoc.data();
-      console.log('Attempting to delete task:', { id, ...taskData });
-      if (taskData.userId !== currentUser.uid) {
-        alert('You do not have permission to delete this task.');
-        console.warn('Delete blocked: userId mismatch', { taskUserId: taskData.userId, currentUser: currentUser.uid });
-        return;
-      }
       await deleteDoc(doc(db, 'tasks', id));
-      setTasks(tasks.filter(task => task.id !== id));
-      // Update user's totalTasks count
-      if (currentUser && currentUser.uid) {
-        try {
-          const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
-          const userData = userDoc.data();
-          const totalTasks = userData?.totalTasks || 1;
-          await updateDoc(doc(db, 'users', currentUser.uid), {
-            totalTasks: Math.max(0, totalTasks - 1)
-          });
-        } catch (error) {
-          console.error('Error updating user totalTasks:', error);
-        }
-      }
+      // Update stats
+      const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
+      const userData = userDoc.data();
+      await updateDoc(doc(db, 'users', currentUser.uid), {
+        totalTasks: Math.max(0, (userData?.totalTasks || 1) - 1)
+      });
     } catch (error) {
       console.error('Error deleting task:', error);
-      alert('Failed to delete task: ' + (error.message || error.code || error));
     }
   };
 
   const loadTasksManually = async () => {
-    if (!currentUser || !currentUser.uid) return;
-    
+    if (!currentUser) return;
     try {
-      console.log('=== MANUAL TASK LOADING ===');
-      const tasksQuery = query(
-        collection(db, 'tasks'), 
-        where('userId', '==', currentUser.uid)
-      );
-      
-      const snapshot = await getDocs(tasksQuery);
-      console.log('Manual load snapshot:', snapshot.docs.length, 'tasks');
-      
-      const tasksData = snapshot.docs.map(doc => {
-        const data = doc.data();
-        return { id: doc.id, ...data };
-      }).sort((a, b) => b.createdAt?.toDate?.() - a.createdAt?.toDate?.());
-      
+      const q = query(collection(db, 'tasks'), where('userId', '==', currentUser.uid));
+      const snapshot = await getDocs(q);
+      const tasksData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+        .sort((a, b) => (b.createdAt?.toDate?.() || 0) - (a.createdAt?.toDate?.() || 0));
       setTasks(tasksData);
       setLoading(false);
-      console.log('Manual tasks loaded:', tasksData.length, 'tasks');
     } catch (error) {
-      console.error('Manual task loading failed:', error);
+      console.error('Manual load failed:', error);
       setLoading(false);
     }
   };
@@ -368,14 +270,9 @@ const TaskManager = () => {
       if (success) {
         setNewSubject('');
         setShowAddSubject(false);
-        // Show success message
-        alert(`Subject "${newSubject.trim()}" added successfully!`);
       } else {
-        // Show error message to user
-        alert('Failed to add subject. Please try again.');
+        alert('Failed to add subject.');
       }
-    } else {
-      alert('Please enter a subject name.');
     }
   };
 
@@ -399,18 +296,18 @@ const TaskManager = () => {
 
   // Filter tasks based on active filter
   const filteredTasks = tasks.filter(task => {
-    switch (activeFilter) {
-      case 'all':
-        return true;
-      case 'pending':
-        return task.status === 'pending';
-      case 'in-progress':
-        return task.status === 'in-progress';
-      case 'completed':
-        return task.status === 'completed';
-      default:
-        return true;
+    if (activeFilter === 'all') return true;
+    if (activeFilter === 'reviews') {
+      // Show tasks marked for review where the date is today or in the past
+      if (!task.isReview || !task.reviewDate) return false;
+      const rDate = task.reviewDate.toDate ? task.reviewDate.toDate() : new Date(task.reviewDate);
+      const today = new Date();
+      // Reset times to compare just dates
+      rDate.setHours(0,0,0,0);
+      today.setHours(0,0,0,0);
+      return rDate <= today;
     }
+    return task.status === activeFilter;
   });
 
   if (loading) {
@@ -487,21 +384,8 @@ const TaskManager = () => {
                     className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                     onKeyDown={(e) => e.key === 'Enter' && handleAddSubject()}
                   />
-                  <button
-                    onClick={handleAddSubject}
-                    className="px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded-md transition-colors"
-                  >
-                    Add
-                  </button>
-                  <button
-                    onClick={() => {
-                      setShowAddSubject(false);
-                      setNewSubject('');
-                    }}
-                    className="px-3 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-md transition-colors"
-                  >
-                    Cancel
-                  </button>
+                  <button onClick={handleAddSubject} className="px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded-md">Add</button>
+                  <button onClick={() => { setShowAddSubject(false); setNewSubject(''); }} className="px-3 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-md">Cancel</button>
                 </div>
               )}
             </div>
@@ -526,6 +410,44 @@ const TaskManager = () => {
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
+            
+            {/* Review Section */}
+            <div className="md:col-span-2 bg-blue-50 p-4 rounded-lg border border-blue-100">
+              <div className="flex items-center space-x-2 mb-2">
+                <input
+                  type="checkbox"
+                  id="isReview"
+                  checked={newTask.isReview}
+                  onChange={(e) => {
+                    const isChecked = e.target.checked;
+                    // Auto-set date to 3 days from now if checked
+                    let dateStr = '';
+                    if (isChecked) {
+                      const d = new Date();
+                      d.setDate(d.getDate() + 3);
+                      dateStr = d.toISOString().split('T')[0];
+                    }
+                    setNewTask({ ...newTask, isReview: isChecked, reviewDate: dateStr });
+                  }}
+                  className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                />
+                <label htmlFor="isReview" className="text-sm font-medium text-gray-900">Tag for Review / Spaced Repetition</label>
+              </div>
+              
+              {newTask.isReview && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Review Date</label>
+                  <input
+                    type="date"
+                    value={newTask.reviewDate}
+                    onChange={(e) => setNewTask({ ...newTask, reviewDate: e.target.value })}
+                    className="w-full md:w-1/2 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">This task will appear in the "Reviews Due" tab on this date.</p>
+                </div>
+              )}
+            </div>
+
             <div className="md:col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
               <textarea
@@ -560,9 +482,7 @@ const TaskManager = () => {
           <button 
             onClick={() => setActiveFilter('all')}
             className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-              activeFilter === 'all' 
-                ? 'bg-blue-100 text-blue-800' 
-                : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
+              activeFilter === 'all' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
             }`}
           >
             All Tasks ({tasks.length})
@@ -570,9 +490,7 @@ const TaskManager = () => {
           <button 
             onClick={() => setActiveFilter('pending')}
             className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-              activeFilter === 'pending' 
-                ? 'bg-blue-100 text-blue-800' 
-                : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
+              activeFilter === 'pending' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
             }`}
           >
             Pending ({tasks.filter(task => task.status === 'pending').length})
@@ -580,9 +498,7 @@ const TaskManager = () => {
           <button 
             onClick={() => setActiveFilter('in-progress')}
             className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-              activeFilter === 'in-progress' 
-                ? 'bg-blue-100 text-blue-800' 
-                : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
+              activeFilter === 'in-progress' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
             }`}
           >
             In Progress ({tasks.filter(task => task.status === 'in-progress').length})
@@ -590,12 +506,26 @@ const TaskManager = () => {
           <button 
             onClick={() => setActiveFilter('completed')}
             className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-              activeFilter === 'completed' 
-                ? 'bg-blue-100 text-blue-800' 
-                : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
+              activeFilter === 'completed' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
             }`}
           >
             Completed ({tasks.filter(task => task.status === 'completed').length})
+          </button>
+          <button 
+            onClick={() => setActiveFilter('reviews')}
+            className={`px-4 py-2 rounded-lg font-medium transition-colors border-2 ${
+              activeFilter === 'reviews' 
+                ? 'bg-purple-100 text-purple-800 border-purple-200' 
+                : 'bg-white text-purple-600 border-purple-200 hover:bg-purple-50'
+            }`}
+          >
+            👀 Reviews Due ({tasks.filter(t => {
+              if (!t.isReview || !t.reviewDate) return false;
+              const rDate = t.reviewDate.toDate ? t.reviewDate.toDate() : new Date(t.reviewDate);
+              const today = new Date();
+              rDate.setHours(0,0,0,0); today.setHours(0,0,0,0);
+              return rDate <= today;
+            }).length})
           </button>
         </div>
       </div>
@@ -614,6 +544,11 @@ const TaskManager = () => {
                   <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(task.status)}`}>
                     {task.status}
                   </span>
+                  {task.isReview && (
+                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+                      👀 Review: {(() => { try { return (task.reviewDate && (task.reviewDate.toDate ? task.reviewDate.toDate() : new Date(task.reviewDate))).toLocaleDateString(); } catch { return ''; } })()}
+                    </span>
+                  )}
                 </div>
                 <p className="text-sm text-gray-600 mb-2">{task.subject}</p>
                 {task.description && (
@@ -654,9 +589,11 @@ const TaskManager = () => {
             {activeFilter === 'all' ? 'No tasks yet' : `No ${activeFilter} tasks`}
           </h3>
           <p className="text-gray-600">
-            {activeFilter === 'all' 
-              ? 'Create your first task to get started!' 
-              : `No tasks are currently ${activeFilter}.`
+            {activeFilter === 'reviews' 
+              ? 'No tasks due for review today.' 
+              : activeFilter === 'all' 
+                ? 'Create your first task to get started!'
+                : `No tasks are currently ${activeFilter}.`
             }
           </p>
           {listenerFailed && (
@@ -676,4 +613,4 @@ const TaskManager = () => {
   );
 };
 
-export default TaskManager; 
+export default TaskManager;
