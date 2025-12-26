@@ -5,6 +5,7 @@ import TaskManager from './components/TaskManager';
 import StudyTimer from './components/StudyTimer';
 import Chatbot from './components/Chatbot';
 import Profile from './components/Profile';
+import FlashcardLibrary from './components/FlashcardLibrary';
 import Navigation from './components/Navigation';
 import Login from './components/Login';
 
