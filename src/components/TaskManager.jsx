@@ -3,6 +3,8 @@ import { useAuth } from '../hooks/useAuth.js';
 import { useSubjects } from '../hooks/useSubjects.js';
 import { collection, addDoc, updateDoc, deleteDoc, doc, query, where, getDocs, orderBy, getDoc, onSnapshot } from 'firebase/firestore';
 import { db } from '../config/firebase.js';
+// IMPORT THE FLASHCARD COMPONENT
+import FlashcardGenerator from './FlashcardGenerator';
 
 // List of all possible achievements (should match Profile.jsx)
 const ALL_ACHIEVEMENTS = [
@@ -33,25 +35,23 @@ async function checkAndAwardTaskAchievements(userId, tasks) {
 
     const completedTasks = tasks.filter(t => t.status === 'completed').length;
     if (completedTasks >= 50) addAchievement(3);
-
+    
     const mathTasks = tasks.filter(t => t.status === 'completed' && t.subject && t.subject.toLowerCase().includes('math')).length;
     if (mathTasks >= 20) addAchievement(4);
-
+    
     const scienceTasks = tasks.filter(t => t.status === 'completed' && t.subject && t.subject.toLowerCase().includes('science')).length;
     if (scienceTasks >= 10) addAchievement(12);
-
+    
     const literatureTasks = tasks.filter(t => t.status === 'completed' && t.subject && t.subject.toLowerCase().includes('literature')).length;
     if (literatureTasks >= 10) addAchievement(13);
-
+    
     const historyTasks = tasks.filter(t => t.status === 'completed' && t.subject && t.subject.toLowerCase().includes('history')).length;
     if (historyTasks >= 10) addAchievement(14);
-
+    
     const completedDates = tasks.filter(t => t.status === 'completed' && t.completedAt).map(t => {
-      try {
-        const d = t.completedAt.toDate ? t.completedAt.toDate() : new Date(t.completedAt);
-        return d.toISOString().split('T')[0];
-      } catch (e) { return null; }
-    }).filter(Boolean);
+      const d = t.completedAt instanceof Date ? t.completedAt : new Date(t.completedAt.seconds * 1000); // Handle Firestore timestamp
+      return d.toISOString().split('T')[0];
+    });
     
     const uniqueDays = Array.from(new Set(completedDates));
     uniqueDays.sort();
@@ -84,14 +84,15 @@ const TaskManager = () => {
   const [showAddSubject, setShowAddSubject] = useState(false);
   const [newSubject, setNewSubject] = useState('');
 
+  // NEW: State for Flashcard Modal
+  const [selectedTaskForCards, setSelectedTaskForCards] = useState(null);
+
   const [newTask, setNewTask] = useState({
     title: '',
     subject: '',
     priority: 'medium',
     dueDate: '',
-    description: '',
-    isReview: false,
-    reviewDate: ''
+    description: ''
   });
 
   const [showAddForm, setShowAddForm] = useState(false);
@@ -150,11 +151,6 @@ const TaskManager = () => {
     
     try {
       const dueDate = new Date(newTask.dueDate);
-      // Process review date if set
-      let reviewDate = null;
-      if (newTask.isReview && newTask.reviewDate) {
-        reviewDate = new Date(newTask.reviewDate);
-      }
       
       const taskData = {
         title: newTask.title.trim(),
@@ -164,21 +160,15 @@ const TaskManager = () => {
         description: newTask.description.trim(),
         userId: currentUser.uid,
         status: 'pending',
-        isReview: newTask.isReview,
-        reviewDate: reviewDate,
         createdAt: new Date(),
         updatedAt: new Date()
       };
       
       const docRef = await addDoc(collection(db, 'tasks'), taskData);
       
-      setNewTask({ 
-        title: '', subject: '', priority: 'medium', dueDate: '', 
-        description: '', isReview: false, reviewDate: '' 
-      });
+      setNewTask({ title: '', subject: '', priority: 'medium', dueDate: '', description: '' });
       setShowAddForm(false);
       
-      // Update stats
       if (currentUser && currentUser.uid) {
         const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
         const userData = userDoc.data();
@@ -201,7 +191,6 @@ const TaskManager = () => {
         completedAt: status === 'completed' ? new Date() : null
       });
       
-      // Update points if completing
       if (currentUser && currentUser.uid) {
         const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
         const userData = userDoc.data();
@@ -238,7 +227,6 @@ const TaskManager = () => {
     if (!window.confirm('Are you sure you want to delete this task?')) return;
     try {
       await deleteDoc(doc(db, 'tasks', id));
-      // Update stats
       const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
       const userData = userDoc.data();
       await updateDoc(doc(db, 'users', currentUser.uid), {
@@ -270,6 +258,7 @@ const TaskManager = () => {
       if (success) {
         setNewSubject('');
         setShowAddSubject(false);
+        alert(`Subject "${newSubject.trim()}" added successfully!`);
       } else {
         alert('Failed to add subject.');
       }
@@ -294,19 +283,8 @@ const TaskManager = () => {
     }
   };
 
-  // Filter tasks based on active filter
   const filteredTasks = tasks.filter(task => {
     if (activeFilter === 'all') return true;
-    if (activeFilter === 'reviews') {
-      // Show tasks marked for review where the date is today or in the past
-      if (!task.isReview || !task.reviewDate) return false;
-      const rDate = task.reviewDate.toDate ? task.reviewDate.toDate() : new Date(task.reviewDate);
-      const today = new Date();
-      // Reset times to compare just dates
-      rDate.setHours(0,0,0,0);
-      today.setHours(0,0,0,0);
-      return rDate <= today;
-    }
     return task.status === activeFilter;
   });
 
@@ -410,44 +388,6 @@ const TaskManager = () => {
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
-            
-            {/* Review Section */}
-            <div className="md:col-span-2 bg-blue-50 p-4 rounded-lg border border-blue-100">
-              <div className="flex items-center space-x-2 mb-2">
-                <input
-                  type="checkbox"
-                  id="isReview"
-                  checked={newTask.isReview}
-                  onChange={(e) => {
-                    const isChecked = e.target.checked;
-                    // Auto-set date to 3 days from now if checked
-                    let dateStr = '';
-                    if (isChecked) {
-                      const d = new Date();
-                      d.setDate(d.getDate() + 3);
-                      dateStr = d.toISOString().split('T')[0];
-                    }
-                    setNewTask({ ...newTask, isReview: isChecked, reviewDate: dateStr });
-                  }}
-                  className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                />
-                <label htmlFor="isReview" className="text-sm font-medium text-gray-900">Tag for Review / Spaced Repetition</label>
-              </div>
-              
-              {newTask.isReview && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Review Date</label>
-                  <input
-                    type="date"
-                    value={newTask.reviewDate}
-                    onChange={(e) => setNewTask({ ...newTask, reviewDate: e.target.value })}
-                    className="w-full md:w-1/2 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                  <p className="text-xs text-gray-500 mt-1">This task will appear in the "Reviews Due" tab on this date.</p>
-                </div>
-              )}
-            </div>
-
             <div className="md:col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
               <textarea
@@ -460,18 +400,8 @@ const TaskManager = () => {
             </div>
           </div>
           <div className="mt-4 flex justify-end space-x-3">
-            <button
-              onClick={() => setShowAddForm(false)}
-              className="px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={addTask}
-              className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition-colors"
-            >
-              Add Task
-            </button>
+            <button onClick={() => setShowAddForm(false)} className="px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors">Cancel</button>
+            <button onClick={addTask} className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition-colors">Add Task</button>
           </div>
         </div>
       )}
@@ -479,54 +409,17 @@ const TaskManager = () => {
       {/* Task Filters */}
       <div className="bg-white rounded-lg shadow-md p-6 mb-8">
         <div className="flex flex-wrap gap-4">
-          <button 
-            onClick={() => setActiveFilter('all')}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-              activeFilter === 'all' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
-            }`}
-          >
-            All Tasks ({tasks.length})
-          </button>
-          <button 
-            onClick={() => setActiveFilter('pending')}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-              activeFilter === 'pending' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
-            }`}
-          >
-            Pending ({tasks.filter(task => task.status === 'pending').length})
-          </button>
-          <button 
-            onClick={() => setActiveFilter('in-progress')}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-              activeFilter === 'in-progress' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
-            }`}
-          >
-            In Progress ({tasks.filter(task => task.status === 'in-progress').length})
-          </button>
-          <button 
-            onClick={() => setActiveFilter('completed')}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-              activeFilter === 'completed' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
-            }`}
-          >
-            Completed ({tasks.filter(task => task.status === 'completed').length})
-          </button>
-          <button 
-            onClick={() => setActiveFilter('reviews')}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors border-2 ${
-              activeFilter === 'reviews' 
-                ? 'bg-purple-100 text-purple-800 border-purple-200' 
-                : 'bg-white text-purple-600 border-purple-200 hover:bg-purple-50'
-            }`}
-          >
-            👀 Reviews Due ({tasks.filter(t => {
-              if (!t.isReview || !t.reviewDate) return false;
-              const rDate = t.reviewDate.toDate ? t.reviewDate.toDate() : new Date(t.reviewDate);
-              const today = new Date();
-              rDate.setHours(0,0,0,0); today.setHours(0,0,0,0);
-              return rDate <= today;
-            }).length})
-          </button>
+          {['all', 'pending', 'in-progress', 'completed'].map(filter => (
+            <button 
+              key={filter}
+              onClick={() => setActiveFilter(filter)}
+              className={`px-4 py-2 rounded-lg font-medium transition-colors capitalize ${
+                activeFilter === filter ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
+              }`}
+            >
+              {filter} ({filter === 'all' ? tasks.length : tasks.filter(t => t.status === filter).length})
+            </button>
+          ))}
         </div>
       </div>
 
@@ -544,11 +437,6 @@ const TaskManager = () => {
                   <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(task.status)}`}>
                     {task.status}
                   </span>
-                  {task.isReview && (
-                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
-                      👀 Review: {(() => { try { return (task.reviewDate && (task.reviewDate.toDate ? task.reviewDate.toDate() : new Date(task.reviewDate))).toLocaleDateString(); } catch { return ''; } })()}
-                    </span>
-                  )}
                 </div>
                 <p className="text-sm text-gray-600 mb-2">{task.subject}</p>
                 {task.description && (
@@ -560,6 +448,15 @@ const TaskManager = () => {
                 </div>
               </div>
               <div className="flex items-center space-x-2 ml-4">
+                {/* NEW: Flashcard Generator Button */}
+                <button
+                  onClick={() => setSelectedTaskForCards(task)}
+                  className="p-2 text-purple-600 hover:text-purple-800 hover:bg-purple-50 rounded-full transition-colors"
+                  title="Generate Flashcards"
+                >
+                  <span className="text-xl">✨</span>
+                </button>
+
                 <select
                   value={task.status}
                   onChange={(e) => updateTaskStatus(task.id, e.target.value)}
@@ -571,7 +468,7 @@ const TaskManager = () => {
                 </select>
                 <button
                   onClick={() => deleteTask(task.id)}
-                  className="text-red-600 hover:text-red-800 transition-colors"
+                  className="text-red-600 hover:text-red-800 transition-colors p-2"
                 >
                   🗑️
                 </button>
@@ -589,16 +486,13 @@ const TaskManager = () => {
             {activeFilter === 'all' ? 'No tasks yet' : `No ${activeFilter} tasks`}
           </h3>
           <p className="text-gray-600">
-            {activeFilter === 'reviews' 
-              ? 'No tasks due for review today.' 
-              : activeFilter === 'all' 
-                ? 'Create your first task to get started!'
-                : `No tasks are currently ${activeFilter}.`
+            {activeFilter === 'all' 
+              ? 'Create your first task to get started!'
+              : `No tasks are currently ${activeFilter}.`
             }
           </p>
           {listenerFailed && (
             <div className="mt-4">
-              <p className="text-sm text-red-600 mb-2">Real-time updates failed. Tasks may not be up to date.</p>
               <button
                 onClick={loadTasksManually}
                 className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition-colors"
@@ -608,6 +502,14 @@ const TaskManager = () => {
             </div>
           )}
         </div>
+      )}
+
+      {/* NEW: Render Flashcard Modal */}
+      {selectedTaskForCards && (
+        <FlashcardGenerator 
+          task={selectedTaskForCards} 
+          onClose={() => setSelectedTaskForCards(null)} 
+        />
       )}
     </div>
   );

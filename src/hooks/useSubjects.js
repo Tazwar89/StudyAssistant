@@ -123,4 +123,4 @@ export function useSubjects() {
     addSubject,
     loading
   };
-} 
+}

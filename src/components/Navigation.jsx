@@ -19,6 +19,7 @@ const Navigation = () => {
         <Link to="/" className="px-4 py-2 rounded hover:bg-gray-100 font-medium text-gray-700">Dashboard</Link>
         <Link to="/tasks" className="px-4 py-2 rounded hover:bg-gray-100 font-medium text-gray-700">Tasks</Link>
         <Link to="/timer" className="px-4 py-2 rounded hover:bg-gray-100 font-medium text-gray-700">Timer</Link>
+        <Link to="/flashcards" className="px-4 py-2 rounded hover:bg-gray-100 font-medium text-gray-700">Library</Link>
         <Link to="/chatbot" className="px-4 py-2 rounded hover:bg-gray-100 font-medium text-gray-700">Chatbot</Link>
         <Link to="/profile" className="px-4 py-2 rounded hover:bg-gray-100 font-medium text-gray-700">Profile</Link>
         <button
@@ -32,4 +33,4 @@ const Navigation = () => {
   );
 };
 
-export default Navigation; 
+export default Navigation;

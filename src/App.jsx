@@ -6,7 +6,6 @@ import StudyTimer from './components/StudyTimer';
 import Chatbot from './components/Chatbot';
 import Profile from './components/Profile';
 import Navigation from './components/Navigation';
-
 import Login from './components/Login';
 
 function App() {
@@ -33,6 +32,7 @@ function App() {
             <Route path="/" element={<Dashboard />} />
             <Route path="/tasks" element={<TaskManager />} />
             <Route path="/timer" element={<StudyTimer />} />
+            <Route path="/flashcards" element={<FlashcardLibrary />} />
             <Route path="/chatbot" element={<Chatbot />} />
             <Route path="/profile" element={<Profile />} />
 
