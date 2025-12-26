@@ -1,10 +1,9 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleGenAI } from '@google/genai';
 
-// Initialize the Gemini API
-const genAI = new GoogleGenerativeAI(import.meta.env.VITE_GEMINI_API_KEY || 'your-api-key-here');
-
-// Create a model instance
-const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+// Initialize the Google Gen AI Client
+const genAI = new GoogleGenAI({ 
+  apiKey: import.meta.env.VITE_GEMINI_API_KEY || 'your-api-key-here' 
+});
 
 // System prompt for the study assistant
 const SYSTEM_PROMPT = `You are an intelligent study assistant designed to help students with their academic journey. Your role is to:
@@ -27,21 +26,18 @@ Guidelines:
 
 Remember: You're here to help students succeed in their studies!`;
 
-// Chat history management
-let chatHistory = [];
-
 // Initialize chat
 export const initializeChat = async () => {
   try {
-    const chat = model.startChat({
-      generationConfig: {
-        maxOutputTokens: 1000,
+    // In the new SDK, we create a chat session directly from the client
+    const chat = await genAI.chats.create({
+      model: "gemini-3-flash-preview",
+      config: {
         temperature: 0.7,
+        maxOutputTokens: 1000,
+        systemInstruction: SYSTEM_PROMPT, // System prompt is now a config option
       },
     });
-    
-    // Send the system prompt as the first message to set the context
-    await chat.sendMessage(SYSTEM_PROMPT);
     
     return chat;
   } catch (error) {
@@ -58,10 +54,14 @@ export const sendMessageToGemini = async (message, chat = null) => {
       chat = await initializeChat();
     }
 
-    // Send the message
-    const result = await chat.sendMessage(message);
-    const response = await result.response;
-    const text = response.text();
+    // Send the message using the new SDK syntax
+    // The method takes an object with a 'message' property
+    const result = await chat.sendMessage({
+      message: message
+    });
+
+    // In the new SDK, result.text is a getter for the text content
+    const text = result.text;
 
     return {
       success: true,
@@ -71,7 +71,6 @@ export const sendMessageToGemini = async (message, chat = null) => {
   } catch (error) {
     console.error('Error sending message to Gemini:', error);
     
-    // Fallback response if API fails
     const fallbackResponses = [
       "I'm having trouble connecting right now, but I'm here to help! Try asking me about study tips, time management, or any subject you're working on.",
       "Sorry, I'm experiencing some technical difficulties. In the meantime, here are some general study tips: take regular breaks, stay organized, and practice active recall!",
@@ -86,12 +85,49 @@ export const sendMessageToGemini = async (message, chat = null) => {
   }
 };
 
+// Generate Flashcards (Micro-service Feature)
+export const generateFlashcards = async (topic, count = 5) => {
+  try {
+    const prompt = `
+      You are a teacher. Create ${count} study flashcards for the topic: "${topic}".
+      Return ONLY a raw JSON array of objects.
+      Each object must have exactly two fields: "front" (the question/term) and "back" (the answer/definition).
+      Example: [{"front": "What is the powerhouse of the cell?", "back": "Mitochondria"}]
+    `;
+
+    // Use the models.generateContent method for single-turn tasks
+    const result = await genAI.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: prompt,
+      config: {
+        responseMimeType: 'application/json', // Native JSON support
+      }
+    });
+
+    // Parse the JSON response
+    const text = result.text;
+    return JSON.parse(text);
+
+  } catch (error) {
+    console.error('Error generating flashcards:', error);
+    return [];
+  }
+};
+
 // Get study-specific suggestions
 export const getStudySuggestions = async (topic) => {
   try {
     const prompt = `Provide 3-5 specific study tips for ${topic}. Make them practical and actionable. Use emojis and keep each tip concise.`;
-    const result = await sendMessageToGemini(prompt);
-    return result;
+    
+    const result = await genAI.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: prompt
+    });
+
+    return {
+      success: true,
+      response: result.text
+    };
   } catch (error) {
     console.error('Error getting study suggestions:', error);
     return {
@@ -108,7 +144,3 @@ export const isApiKeyConfigured = () => {
          apiKey !== 'your-api-key-here' &&
          apiKey.length > 0;
 };
-
-
-
- 
