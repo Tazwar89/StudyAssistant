@@ -85,28 +85,55 @@ export const sendMessageToGemini = async (message, chat = null) => {
   }
 };
 
-// Generate Flashcards (Micro-service Feature)
-export const generateFlashcards = async (topic, count = 5) => {
-  try {
-    const prompt = `
-      You are a teacher. Create ${count} study flashcards for the topic: "${topic}".
-      Return ONLY a raw JSON array of objects.
-      Each object must have exactly two fields: "front" (the question/term) and "back" (the answer/definition).
-      Example: [{"front": "What is the powerhouse of the cell?", "back": "Mitochondria"}]
-    `;
+// Helper to convert file to Base64 for the API
+export const fileToGenerativePart = async (file) => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const base64String = reader.result.split(',')[1];
+      resolve({
+        inlineData: {
+          data: base64String,
+          mimeType: file.type
+        }
+      });
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+};
 
-    // Use the models.generateContent method for single-turn tasks
+// MULTIMODAL Flashcard Generation
+export const generateFlashcards = async (topicOrPrompt, file = null, count = 5) => {
+  try {
+    let contents = [
+      { text: `You are a teacher. Create ${count} study flashcards based strictly on the provided content. 
+        Return ONLY a raw JSON array of objects. 
+        Each object must have exactly two fields: "front" (question) and "back" (answer).
+        Example: [{"front": "Question?", "back": "Answer"}]` 
+      }
+    ];
+
+    // If a file is provided (Image/PDF), add it to the request
+    if (file) {
+      const filePart = await fileToGenerativePart(file);
+      contents.push(filePart);
+      contents.push({ text: `Generate flashcards from this image/document. Focus on the key concepts shown.` });
+    } 
+    // Otherwise, generate from the text topic
+    else {
+      contents.push({ text: `Topic: "${topicOrPrompt}"` });
+    }
+
     const result = await genAI.models.generateContent({
-      model: "gemini-3-flash-preview",
-      contents: prompt,
+      model: "gemini-3-flash-preview", // Using the latest Preview model
+      contents: contents,
       config: {
-        responseMimeType: 'application/json', // Native JSON support
+        responseMimeType: 'application/json',
       }
     });
 
-    // Parse the JSON response
-    const text = result.text;
-    return JSON.parse(text);
+    return JSON.parse(result.text);
 
   } catch (error) {
     console.error('Error generating flashcards:', error);
